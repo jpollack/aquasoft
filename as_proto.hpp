@@ -103,7 +103,8 @@ struct as_field
 	t_query_binlist =	40, // deprecated - now use bin-ops
 	t_batch =		41,
 	t_batch_with_set =	42,
-	t_predexp =		43
+	t_predexp =		43,
+	t_conndata =		50
     };
     uint32_t be_sz;
     as_field::type t;
