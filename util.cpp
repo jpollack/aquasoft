@@ -8,6 +8,10 @@
 #include "as_proto.hpp"
 #include <time.h>
 #include <chrono>
+#include <nlohmann/json.hpp>
+
+using json = nlohmann::json;
+using namespace std;
 
 std::string get_labeled (const std::string& str, const std::string& l)
 {
@@ -98,6 +102,29 @@ void to_hex (void *dst, const void* src, size_t sz)
     }
 }
 
+constexpr uint8_t hex2dec (char h) {
+  if ((h >= '0') && (h <= '9')) {
+    return h - '0';
+  } else if ((h >= 'A') && (h <= 'F')) {
+    return 10 + (h - 'A');
+  } else if ((h >= 'a') && (h <= 'f')) {
+    return 10 + (h - 'a');
+  } else {
+    return 0;
+  }
+}
+
+void from_hex (void *dst, const void* src, size_t sz)
+{
+    const char *sp = (const char *)src;
+    uint8_t *dp = (uint8_t *)dst;
+
+    const uint8_t *ep = dp + sz;
+    while (dp != ep) {
+      *dp++ = (hex2dec(*sp++) << 4) + hex2dec(*sp++);
+    }
+}
+
 // nlohmann::json to_json (const as_msg *msg)
 // {
 
@@ -105,7 +132,7 @@ void to_hex (void *dst, const void* src, size_t sz)
 // }
 
 nlohmann::json to_json (const as_msg *msg) {
-    nlohmann::json ret;
+    nlohmann::json ret = nlohmann::json::object ();
 
     ret["flags"] = msg->flags;
     if (msg->result_code)		ret["result_code"] = msg->result_code;

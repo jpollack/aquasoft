@@ -17,4 +17,5 @@ uint64_t usec_now (void);
 uint32_t secs_since_cfepoch (void);
 std::string get_labeled (const std::string& str, const std::string& l);
 void to_hex (void *dst, const void* src, size_t sz);
+void from_hex (void *dst, const void* src, size_t sz);
 nlohmann::json to_json (const as_msg *msg);
