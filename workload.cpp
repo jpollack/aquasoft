@@ -128,8 +128,8 @@ void workload_entry (int rate, bool doWrite)
 
   std::uniform_real_distribution<double> distd (0, 1);
 
-  string str = p["AGENT"] + "-" + p["MODE"];
-  auto sret = call_info(fd, "conn-data:" + str + "\n");
+  string str = "Zm9vYmFyCg==";
+  auto sret = call_info(fd, "user-agent-set:value=" + str + "\n");
   uint64_t tnow = usec_now ();
   uint64_t tnext;
   int64_t ri;

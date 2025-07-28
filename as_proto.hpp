@@ -95,6 +95,7 @@ struct as_field
 	t_index_name =		21, // was superfluous - but reserved for future use
 	t_index_range =		22,
 	t_index_context =	23,
+	t_index_expression =	24,
 	t_index_type =		26,
 	t_udf_filename =	30,
 	t_udf_function =	31,
