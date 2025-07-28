@@ -282,6 +282,7 @@ std::string to_string (const as_field::type t)
     case(as_field::type::t_batch):			return "batch";
     case(as_field::type::t_batch_with_set):		return "batch_with_set";
     case(as_field::type::t_predexp):			return "predexp";
+    case(as_field::type::t_conndata):			return "conndata";
     }
     return "unknown";
 }

@@ -108,6 +108,7 @@ void record_init (as_msg *msg, int ri, size_t numBins, size_t padSize)
 void record_size (as_msg *msg, int ri)
 {
   visit (msg, ri, AS_MSG_FLAG_READ);
+  dieunless(msg->add(as_field::type::t_conndata, p["AGENT"] + "-" + "init"));
   auto pload = json::to_msgpack ({ { 74 }, 0 });
   dieunless (msg->add (as_op::type::t_exp_read, "size", pload.size (), pload.data ()));
 }
@@ -127,6 +128,8 @@ void workload_entry (int rate, bool doWrite)
 
   std::uniform_real_distribution<double> distd (0, 1);
 
+  string str = p["AGENT"] + "-" + p["MODE"];
+  auto sret = call_info(fd, "conn-data:" + str + "\n");
   uint64_t tnow = usec_now ();
   uint64_t tnext;
   int64_t ri;
@@ -282,6 +285,7 @@ int main (int argc, char **argv, char **envp)
   // srand ((unsigned int)clock ());
   // Defaults for required variables.
   p = {
+    { "AGENT",		"workload" },
     { "ASDB",		"localhost:3000" },
     { "BIDX",		"-1" },
     { "DURATION",		"0" },
