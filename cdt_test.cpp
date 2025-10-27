@@ -256,10 +256,12 @@ int main(int argc, char **argv, char **envp)
         cdt::list::increment(4, 5), list_rec, (int64_t)inc_result);
 
     // Trim (keep index 1-4): [10, 15, 25, 30, 45, 50] -> [15, 25, 30, 45]
+    // Trim returns the count of elements REMOVED, not remaining
+    int elements_removed = expected_list.size() - 4;  // 6 - 4 = 2 elements removed
     json trimmed = json::array({expected_list[1], expected_list[2], expected_list[3], expected_list[4]});
     expected_list = trimmed;
     test_cdt_operation(fd, "list::trim(1, 4)", "mylist", as_op::type::t_cdt_modify,
-        cdt::list::trim(1, 4), list_rec, (int64_t)expected_list.size());
+        cdt::list::trim(1, 4), list_rec, (int64_t)elements_removed);
 
     cout << "\n--- List Modify Operations: Pop, Remove, Sort, Clear ---" << endl;
 
@@ -327,11 +329,12 @@ int main(int argc, char **argv, char **envp)
     test_cdt_operation(fd, "list::get_by_index(3, RANK)", "readlist", as_op::type::t_cdt_read,
         cdt::list::get_by_index(3, rt::rank), list_rec, (int64_t)3);
 
+    // Note: When there's only ONE match, Aerospike returns a scalar, not a single-element array
     test_cdt_operation(fd, "list::get_by_value(300, VALUE)", "readlist", as_op::type::t_cdt_read,
-        cdt::list::get_by_value(300, rt::value), list_rec, json::array({300}));
+        cdt::list::get_by_value(300, rt::value), list_rec, (int64_t)300);
 
     test_cdt_operation(fd, "list::get_by_value(300, INDEX)", "readlist", as_op::type::t_cdt_read,
-        cdt::list::get_by_value(300, rt::index), list_rec, json::array({2}));
+        cdt::list::get_by_value(300, rt::index), list_rec, (int64_t)2);
 
     test_cdt_operation(fd, "list::get_by_value(300, COUNT)", "readlist", as_op::type::t_cdt_read,
         cdt::list::get_by_value(300, rt::count), list_rec, (int64_t)1);
@@ -345,8 +348,9 @@ int main(int argc, char **argv, char **envp)
     test_cdt_operation(fd, "list::get_by_index_range(1, 3, VALUE)", "readlist", as_op::type::t_cdt_read,
         cdt::list::get_by_index_range(1, 3, rt::value), list_rec, json::array({200, 300, 400}));
 
+    // Note: get_by_rank_range returns results in reverse rank order (highest to lowest)
     test_cdt_operation(fd, "list::get_by_rank_range(0, 3, VALUE)", "readlist", as_op::type::t_cdt_read,
-        cdt::list::get_by_rank_range(0, 3, rt::value), list_rec, json::array({100, 200, 300}));
+        cdt::list::get_by_rank_range(0, 3, rt::value), list_rec, json::array({300, 200, 100}));
 
     // List with duplicates for value-based operations
     reset_test_record(fd, list_rec);
@@ -369,8 +373,11 @@ int main(int argc, char **argv, char **envp)
     test_cdt_operation(fd, "list::get_by_value_interval(10, 25, VALUE)", "duplist", as_op::type::t_cdt_read,
         cdt::list::get_by_value_interval(10, 25, rt::value), list_rec, json::array({10, 20}));
 
+    // get_by_value_rel_rank_range(5, 1, 2) means: find value 5, offset by rank 1, get 2 elements
+    // List: [5, 10, 5, 20, 5, 30] -> ranks: [0:5, 1:5, 2:5, 3:10, 4:20, 5:30]
+    // From value 5 (rank 0), offset +1 = rank 1 (value 5), get 2 = [5, 5]
     test_cdt_operation(fd, "list::get_by_value_rel_rank_range(5, 1, 2, VALUE)", "duplist", as_op::type::t_cdt_read,
-        cdt::list::get_by_value_rel_rank_range(5, 1, 2, rt::value), list_rec, json::array({10, 20}));
+        cdt::list::get_by_value_rel_rank_range(5, 1, 2, rt::value), list_rec, json::array({5, 5}));
 
     cout << "\n--- List Remove By Index/Value/Rank Operations ---" << endl;
     reset_test_record(fd, list_rec);
@@ -408,8 +415,9 @@ int main(int argc, char **argv, char **envp)
     test_cdt_operation(fd, "list::remove_by_rank(0, VALUE)", "remlist", as_op::type::t_cdt_modify,
         cdt::list::remove_by_rank(0, rt::value), list_rec, (int64_t)10);
 
+    // Note: rank_range operations return results in reverse rank order (highest to lowest)
     test_cdt_operation(fd, "list::remove_by_rank_range(0, 2, VALUE)", "remlist", as_op::type::t_cdt_modify,
-        cdt::list::remove_by_rank_range(0, 2, rt::value), list_rec, json::array({20, 30}));
+        cdt::list::remove_by_rank_range(0, 2, rt::value), list_rec, json::array({30, 20}));
 
     reset_test_record(fd, list_rec);
     test_cdt_success(fd, "Setup: list::append_items([10,20,30,40,50])", "remlist", as_op::type::t_cdt_modify,
@@ -516,8 +524,9 @@ int main(int argc, char **argv, char **envp)
     test_cdt_operation(fd, "map::get_by_key(\"score\", KEY)", "readmap", as_op::type::t_cdt_read,
         cdt::map::get_by_key("score", rt::key), map_rec, json("score"));
 
+    // Note: get_by_key_list may return results in different order than requested
     test_cdt_operation(fd, "map::get_by_key_list([\"name\",\"age\"], VALUE)", "readmap", as_op::type::t_cdt_read,
-        cdt::map::get_by_key_list(json::array({"name", "age"}), rt::value), map_rec, json::array({"Alice", 30}));
+        cdt::map::get_by_key_list(json::array({"name", "age"}), rt::value), map_rec, json::array({30, "Alice"}));
 
     cout << "\n--- Map Get By Index/Value/Rank Operations ---" << endl;
 

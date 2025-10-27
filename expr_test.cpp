@@ -755,9 +755,10 @@ int main(int argc, char **argv, char **envp)
 
     vc1 = reset_test_record_vc(fd, 10);
     test_expression(fd, "record_size()", expr::record_size(), 10);
+    // Record size is ~80 bytes, so this condition is false and write should be filtered out
     test_expr_write(fd, req, &res, "Write if record_size > 100", 10,
                     expr::gt(expr::record_size(), 100),
-                    "size_check", 1, true);
+                    "size_check", 1, false);  // false = expect filtered out (code 27)
     free(res); res = nullptr;
 
     vc2 = reset_test_record_vc(fd, 11);
