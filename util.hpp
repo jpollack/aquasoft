@@ -9,6 +9,7 @@ inline void __dul (const char *m, const char *f, int l) { fprintf (stderr, "[%s:
 #define dieunless(EX) ((EX) || (__dul (#EX, __FILE__, __LINE__),false))
 
 std::vector<uint8_t> addr_resolve (const std::string& hostport);
+int tcp_connect (const std::string& hostport);
 size_t add_integer_key_digest (void *dst, const std::string& sn, uint64_t ki);
 size_t add_string_key_digest (void *dst, const std::string& sn, const std::string& si);
 void hash_combine(std::size_t& seed, std::size_t value);
@@ -19,3 +20,5 @@ std::string get_labeled (const std::string& str, const std::string& l);
 void to_hex (void *dst, const void* src, size_t sz);
 void from_hex (void *dst, const void* src, size_t sz);
 nlohmann::json to_json (const as_msg *msg);
+std::vector<uint8_t> to_expr_msgpack(const nlohmann::json& expr);
+std::vector<uint8_t> to_expr_msgpack_wrapped(const nlohmann::json& expr, as_exp::flags flags = as_exp::flags::none);

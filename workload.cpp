@@ -44,18 +44,6 @@ void sigint_handler (int signum) { g_running.store(false); }
 atomic<uint32_t> g_idx;
 vector<uint32_t> g_buf;
 
-int tcp_connect (const std::string& str)
-{
-  int fd;
-  int one = 1;
-  auto ab = addr_resolve (str);
-  dieunless ((fd = ::socket (AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0)) > 0);
-  dieunless (::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)) == 0);
-  dieunless (::connect (fd, (sockaddr *)ab.data (), ab.size ()) == 0);
-  dieunless (::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)) == 0);
-  return fd;
-}
-
 as_msg *visit (as_msg *msg, int ri, int flags)
 {
   msg->clear ();
