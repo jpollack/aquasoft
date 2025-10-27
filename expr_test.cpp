@@ -766,6 +766,195 @@ int main(int argc, char **argv, char **envp)
                     "ttl_check", 1, true);
     free(res); res = nullptr;
 
+    // ========================================================================
+    // STRING AND REGEX EXPRESSION TESTS
+    // ========================================================================
+
+    cout << "\n=== Testing String/Regex Expressions ===" << endl;
+
+    // Create string test records
+    create_test_record(fd, 20, 25, 75, "active");
+    create_test_record(fd, 21, 30, 80, "inactive");
+    create_test_record(fd, 22, 35, 90, "pending");
+
+    test_expression(fd, "status == \"active\"",
+        expr::eq(expr::bin("status", as_exp::result_type::t_str), "active"), 20, true);
+
+    test_expression(fd, "status != \"inactive\"",
+        expr::ne(expr::bin("status", as_exp::result_type::t_str), "inactive"), 20, true);
+
+    // Regex test - match "act" pattern
+    test_expression(fd, "regex(status, \".*act.*\")",
+        expr::regex(expr::bin("status", as_exp::result_type::t_str), ".*act.*"), 20);
+
+    test_expression(fd, "regex(status, \"^in.*\")",
+        expr::regex(expr::bin("status", as_exp::result_type::t_str), "^in.*"), 21);
+
+    // ========================================================================
+    // NIL/NULL HANDLING TESTS
+    // ========================================================================
+
+    cout << "\n=== Testing Nil/Null Handling ===" << endl;
+
+    // Test on record with missing bins
+    delete_test_record(fd, 25);
+    create_test_record(fd, 25, 40, 60, "test");
+
+    // Access non-existent bin (should return nil)
+    test_expression(fd, "bin(\"nonexistent\") [nil]",
+        expr::bin("nonexistent", as_exp::result_type::t_int), 25);
+
+    // Comparison with non-existent bin
+    test_expression(fd, "bin(\"nonexistent\") == 0",
+        expr::eq(expr::bin("nonexistent", as_exp::result_type::t_int), 0), 25);
+
+    // ========================================================================
+    // ADDITIONAL EDGE CASES
+    // ========================================================================
+
+    cout << "\n=== Testing Additional Edge Cases ===" << endl;
+
+    rec1 = reset_test_record(fd, 1);
+
+    // Zero operations
+    test_expression(fd, "age * 0 == 0",
+        expr::eq(expr::mul(expr::bin("age", as_exp::result_type::t_int), 0), 0), 1, true);
+
+    test_expression(fd, "age + 0 == age",
+        expr::eq(
+            expr::add(expr::bin("age", as_exp::result_type::t_int), 0),
+            expr::bin("age", as_exp::result_type::t_int)
+        ), 1, true);
+
+    // Identity operations
+    test_expression(fd, "age / 1 == age",
+        expr::eq(
+            expr::div(expr::bin("age", as_exp::result_type::t_int), 1),
+            expr::bin("age", as_exp::result_type::t_int)
+        ), 1, true);
+
+    // Negative number handling
+    test_expression(fd, "abs(-100)",
+        expr::abs(-100), 1, (int64_t)100);
+
+    test_expression(fd, "age + (-10)",
+        expr::add(expr::bin("age", as_exp::result_type::t_int), -10), 1, (int64_t)(rec1.age - 10));
+
+    // Large number operations
+    test_expression(fd, "1000000 + 2000000",
+        expr::add(1000000, 2000000), 1, (int64_t)3000000);
+
+    // ========================================================================
+    // COMPLEX NESTED EXPRESSION TESTS
+    // ========================================================================
+
+    cout << "\n=== Testing Complex Nested Expressions ===" << endl;
+
+    rec1 = reset_test_record(fd, 1);
+
+    // 4-level nesting: ((age + score) * 2) / 10
+    test_expression(fd, "((age + score) * 2) / 10",
+        expr::div(
+            expr::mul(
+                expr::add(
+                    expr::bin("age", as_exp::result_type::t_int),
+                    expr::bin("score", as_exp::result_type::t_int)
+                ),
+                2
+            ),
+            10
+        ), 1, (int64_t)(((rec1.age + rec1.score) * 2) / 10));
+
+    // Complex logical: (age > 21 AND score > 50) OR (age < 21 AND score > 80)
+    test_expression(fd, "(age > 21 AND score > 50) OR (age < 21 AND score > 80)",
+        expr::or_(
+            expr::and_(
+                expr::gt(expr::bin("age", as_exp::result_type::t_int), 21),
+                expr::gt(expr::bin("score", as_exp::result_type::t_int), 50)
+            ),
+            expr::and_(
+                expr::lt(expr::bin("age", as_exp::result_type::t_int), 21),
+                expr::gt(expr::bin("score", as_exp::result_type::t_int), 80)
+            )
+        ), 1, ((rec1.age > 21 && rec1.score > 50) || (rec1.age < 21 && rec1.score > 80)));
+
+    // Nested conditional: if (age > 30) then (score * 2) else (score + 10)
+    int cond_result = (rec1.age > 30) ? (rec1.score * 2) : (rec1.score + 10);
+    test_expression(fd, "if (age > 30) then (score * 2) else (score + 10)",
+        expr::cond(
+            expr::gt(expr::bin("age", as_exp::result_type::t_int), 30),
+            expr::mul(expr::bin("score", as_exp::result_type::t_int), 2),
+            expr::add(expr::bin("score", as_exp::result_type::t_int), 10)
+        ), 1, (int64_t)cond_result);
+
+    // Bitwise and arithmetic combination: (age | 15) * 2
+    test_expression(fd, "(age | 15) * 2",
+        expr::mul(
+            expr::int_or(expr::bin("age", as_exp::result_type::t_int), 15),
+            2
+        ), 1, (int64_t)((rec1.age | 15) * 2));
+
+    // Min/Max with arithmetic: max(age, score) + min(age, score)
+    test_expression(fd, "max(age, score) + min(age, score)",
+        expr::add(
+            expr::max(expr::bin("age", as_exp::result_type::t_int), expr::bin("score", as_exp::result_type::t_int)),
+            expr::min(expr::bin("age", as_exp::result_type::t_int), expr::bin("score", as_exp::result_type::t_int))
+        ), 1, (int64_t)(max(rec1.age, rec1.score) + min(rec1.age, rec1.score)));
+
+    // ========================================================================
+    // ALL LOGICAL OPERATOR COMBINATIONS
+    // ========================================================================
+
+    cout << "\n=== Testing All Logical Operator Combinations ===" << endl;
+
+    rec1 = reset_test_record(fd, 1);
+
+    // Three-clause AND
+    test_expression(fd, "age > 18 AND score > 20 AND status == \"active\"",
+        expr::and_(
+            expr::and_(
+                expr::gt(expr::bin("age", as_exp::result_type::t_int), 18),
+                expr::gt(expr::bin("score", as_exp::result_type::t_int), 20)
+            ),
+            expr::eq(expr::bin("status", as_exp::result_type::t_str), "active")
+        ), 1, (rec1.age > 18) && (rec1.score > 20) && (rec1.status == "active"));
+
+    // Three-clause OR
+    test_expression(fd, "age < 18 OR score > 90 OR status == \"pending\"",
+        expr::or_(
+            expr::or_(
+                expr::lt(expr::bin("age", as_exp::result_type::t_int), 18),
+                expr::gt(expr::bin("score", as_exp::result_type::t_int), 90)
+            ),
+            expr::eq(expr::bin("status", as_exp::result_type::t_str), "pending")
+        ), 1, (rec1.age < 18) || (rec1.score > 90) || (rec1.status == "pending"));
+
+    // NOT with complex expression
+    test_expression(fd, "NOT(age > 21 AND score < 50)",
+        expr::not_(
+            expr::and_(
+                expr::gt(expr::bin("age", as_exp::result_type::t_int), 21),
+                expr::lt(expr::bin("score", as_exp::result_type::t_int), 50)
+            )
+        ), 1, !((rec1.age > 21) && (rec1.score < 50)));
+
+    // Exclusive OR (XOR)
+    test_expression(fd, "exclusive(age > 30, score > 50)",
+        expr::exclusive(
+            expr::gt(expr::bin("age", as_exp::result_type::t_int), 30),
+            expr::gt(expr::bin("score", as_exp::result_type::t_int), 50)
+        ), 1, ((rec1.age > 30) != (rec1.score > 50)));
+
+    // ========================================================================
+    // CLEANUP
+    // ========================================================================
+
+    cout << "\n--- Final Cleanup ---" << endl;
+    delete_test_record(fd, 20);
+    delete_test_record(fd, 21);
+    delete_test_record(fd, 22);
+    delete_test_record(fd, 25);
+
     close(fd);
 
     cout << "\n=== Test Summary ===" << endl;
