@@ -2124,6 +2124,212 @@ void test_expression_logical_operators(int fd) {
         cdt::select_mode::tree,
         json::array({15, 75})
     );
+
+    cout << "\n--- PART 5.1.1: Advanced Logical Operators (14 tests) ---" << endl;
+
+    // De Morgan's Laws Tests
+
+    // Test 1: De Morgan's Law - NOT(A AND B) == (NOT A) OR (NOT B)
+    // Left side: NOT(VALUE < 30 AND VALUE > 10)
+    json left1 = expr::not_(expr::and_(expr_helpers::value_lt(30), expr_helpers::value_gt(10)));
+    // Right side: (NOT VALUE < 30) OR (NOT VALUE > 10) == (VALUE >= 30) OR (VALUE <= 10)
+    json right1 = expr::or_(expr_helpers::value_ge(30), expr_helpers::value_le(10));
+    // Both should select same elements: [5, 35, 45, 55, 65, 75, 85, 95]
+    test_select_operation(fd, "EXPR: De Morgan - NOT(A AND B) left side", data, left1,
+        cdt::select_mode::tree, json::array({5, 35, 45, 55, 65, 75, 85, 95}));
+    test_select_operation(fd, "EXPR: De Morgan - NOT(A AND B) right side", data, right1,
+        cdt::select_mode::tree, json::array({5, 35, 45, 55, 65, 75, 85, 95}));
+
+    // Test 2: De Morgan's Law - NOT(A OR B) == (NOT A) AND (NOT B)
+    // Left side: NOT(VALUE < 20 OR VALUE > 60)
+    json left2 = expr::not_(expr::or_(expr_helpers::value_lt(20), expr_helpers::value_gt(60)));
+    // Right side: (NOT VALUE < 20) AND (NOT VALUE > 60) == (VALUE >= 20) AND (VALUE <= 60)
+    json right2 = expr::and_(expr_helpers::value_ge(20), expr_helpers::value_le(60));
+    // Both should select same elements: [25, 35, 45, 55]
+    test_select_operation(fd, "EXPR: De Morgan - NOT(A OR B) left side", data, left2,
+        cdt::select_mode::tree, json::array({25, 35, 45, 55}));
+    test_select_operation(fd, "EXPR: De Morgan - NOT(A OR B) right side", data, right2,
+        cdt::select_mode::tree, json::array({25, 35, 45, 55}));
+
+    // Deep Nesting Tests
+
+    // Test 3: 4-level nesting - AND(OR(AND(OR(...))))
+    test_select_operation(fd, "EXPR: 4-level nesting", data,
+        expr::and_(
+            expr_helpers::value_gt(0),
+            expr::or_(
+                expr_helpers::value_lt(20),
+                expr::and_(
+                    expr_helpers::value_gt(50),
+                    expr::or_(
+                        expr_helpers::value_lt(70),
+                        expr_helpers::value_gt(90)
+                    )
+                )
+            )
+        ),
+        cdt::select_mode::tree,
+        json::array({5, 15, 55, 65, 95})  // <20 OR (>50 AND (<70 OR >90))
+    );
+
+    // Test 4: 5-level nesting
+    test_select_operation(fd, "EXPR: 5-level nesting", data,
+        expr::or_(
+            expr_helpers::value_lt(10),
+            expr::and_(
+                expr_helpers::value_gt(20),
+                expr::or_(
+                    expr_helpers::value_lt(40),
+                    expr::and_(
+                        expr_helpers::value_gt(60),
+                        expr::or_(
+                            expr_helpers::value_lt(80),
+                            expr_helpers::value_gt(90)
+                        )
+                    )
+                )
+            )
+        ),
+        cdt::select_mode::tree,
+        json::array({5, 25, 35, 65, 75, 95})
+    );
+
+    // Test 5: 6-level nesting (stress test)
+    test_select_operation(fd, "EXPR: 6-level nesting", data,
+        expr::and_(
+            expr::or_(
+                expr_helpers::value_lt(10),
+                expr::and_(
+                    expr_helpers::value_gt(10),
+                    expr::or_(
+                        expr_helpers::value_lt(30),
+                        expr::and_(
+                            expr_helpers::value_gt(40),
+                            expr::or_(
+                                expr_helpers::value_lt(60),
+                                expr::and_(
+                                    expr_helpers::value_gt(70),
+                                    expr::or_(
+                                        expr_helpers::value_lt(80),
+                                        expr_helpers::value_gt(90)
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            ),
+            expr_helpers::value_gt(0)
+        ),
+        cdt::select_mode::tree,
+        json::array({5, 15, 25, 45, 55, 75, 95})
+    );
+
+    // Complex Nested Combinations
+
+    // Test 6: Triple AND with OR combinations
+    test_select_operation(fd, "EXPR: AND(A, B, C) with nested ORs", data,
+        expr::and_(
+            expr::and_(
+                expr::or_(expr_helpers::value_lt(20), expr_helpers::value_gt(80)),  // A: <20 OR >80
+                expr::or_(expr_helpers::value_gt(10), expr_helpers::value_lt(90))   // B: >10 OR <90 (always true)
+            ),
+            expr::or_(
+                expr::or_(expr_helpers::value_eq(5), expr_helpers::value_eq(15)),   // C: ==5 OR ==15 OR ==85 OR ==95
+                expr::or_(expr_helpers::value_eq(85), expr_helpers::value_eq(95))
+            )
+        ),
+        cdt::select_mode::tree,
+        json::array({5, 15, 85, 95})  // Must satisfy all three conditions
+    );
+
+    // Test 7: Multiple NOTs with AND/OR
+    test_select_operation(fd, "EXPR: NOT(NOT(A) AND NOT(B))", data,
+        expr::not_(
+            expr::and_(
+                expr::not_(expr_helpers::value_lt(40)),  // NOT(<40) == >=40
+                expr::not_(expr_helpers::value_gt(60))   // NOT(>60) == <=60
+            )
+        ),
+        cdt::select_mode::tree,
+        json::array({5, 15, 25, 35, 65, 75, 85, 95})  // NOT(>=40 AND <=60) == <40 OR >60
+    );
+
+    // Test 8: Chained XORs
+    test_select_operation(fd, "EXPR: XOR(XOR(A, B), C)", data,
+        expr::exclusive(
+            expr::exclusive(
+                expr_helpers::value_lt(30),   // A: <30 → [5,15,25]
+                expr_helpers::value_gt(50)    // B: >50 → [55,65,75,85,95]
+            ),
+            expr_helpers::value_eq(25)        // C: ==25 → [25]
+        ),
+        cdt::select_mode::tree,
+        json::array({5, 15, 55, 65, 75, 85, 95})  // XOR chains: (A XOR B) XOR C
+    );
+
+    // Truth Table Edge Cases
+
+    // Test 9: OR with always-true branch (short circuit test)
+    test_select_operation(fd, "EXPR: OR(VALUE >= VALUE, VALUE < 10)", data,
+        expr::or_(
+            expr::ge(expr::var_builtin_int(as_cdt::builtin_var::value),
+                     expr::var_builtin_int(as_cdt::builtin_var::value)),  // Always true
+            expr_helpers::value_lt(10)
+        ),
+        cdt::select_mode::tree,
+        json::array({5, 15, 25, 35, 45, 55, 65, 75, 85, 95})  // All values (always true OR anything)
+    );
+
+    // Test 10: AND with always-false branch
+    test_select_operation(fd, "EXPR: AND(VALUE > 30, VALUE < VALUE)", data,
+        expr::and_(
+            expr_helpers::value_gt(30),
+            expr::lt(expr::var_builtin_int(as_cdt::builtin_var::value),
+                     expr::var_builtin_int(as_cdt::builtin_var::value))  // Always false
+        ),
+        cdt::select_mode::tree,
+        json::array({})  // Empty (anything AND always false)
+    );
+
+    // Test 11: Complex truth table - (A AND B) OR (NOT A AND NOT B) - equivalence test
+    test_select_operation(fd, "EXPR: (A AND B) OR (NOT A AND NOT B)", data,
+        expr::or_(
+            expr::and_(expr_helpers::value_lt(50), expr_helpers::value_gt(20)),   // A AND B
+            expr::and_(expr_helpers::value_ge(50), expr_helpers::value_le(20))    // NOT A AND NOT B
+        ),
+        cdt::select_mode::tree,
+        json::array({25, 35, 45})  // (20<x<50) OR (x>=50 AND x<=20) == 20<x<50
+    );
+
+    // Test 12: Nested NOTs - NOT(NOT(NOT(A)))
+    test_select_operation(fd, "EXPR: NOT(NOT(NOT(VALUE > 50)))", data,
+        expr::not_(
+            expr::not_(
+                expr::not_(expr_helpers::value_gt(50))
+            )
+        ),
+        cdt::select_mode::tree,
+        json::array({5, 15, 25, 35, 45})  // Triple negation: NOT(NOT(NOT(>50))) == NOT(>50) == <=50
+    );
+
+    // Test 13: Distributive law - A AND (B OR C) == (A AND B) OR (A AND C)
+    // Left side
+    json left3 = expr::and_(
+        expr_helpers::value_gt(10),
+        expr::or_(expr_helpers::value_lt(30), expr_helpers::value_gt(70))
+    );
+    // Right side
+    json right3 = expr::or_(
+        expr::and_(expr_helpers::value_gt(10), expr_helpers::value_lt(30)),
+        expr::and_(expr_helpers::value_gt(10), expr_helpers::value_gt(70))
+    );
+    test_select_operation(fd, "EXPR: Distributive - A AND (B OR C) left", data, left3,
+        cdt::select_mode::tree, json::array({15, 25, 75, 85, 95}));
+    test_select_operation(fd, "EXPR: Distributive - A AND (B OR C) right", data, right3,
+        cdt::select_mode::tree, json::array({15, 25, 75, 85, 95}));
+
+    cout << "  Advanced logical operator tests complete" << endl;
 }
 
 void test_expression_arithmetic(int fd) {
@@ -2186,6 +2392,77 @@ void test_expression_arithmetic(int fd) {
         cdt::select_mode::tree,
         json::array({30, 40})
     );
+
+    cout << "\n--- PART 5.2.1: Advanced Arithmetic Operations (6 tests, 8 skipped) ---" << endl;
+
+    // SERVER LIMITATION: pow (opcode 24), log (opcode 25), floor (opcode 28), ceil (opcode 29)
+    // are NOT supported in current Aerospike server versions (return error code 4).
+    // These operations are defined in the wire protocol spec but not implemented.
+    // Skipped tests: pow (2 tests), log (2 tests), floor (2 tests), ceil (1 test), floor-based divisibility (1 test)
+    cout << "  [SKIPPED] 8 tests - pow/log/floor/ceil operations not supported by server (opcodes 24/25/28/29)" << endl;
+
+    // Test 1: min(VALUE, 35) == VALUE - tests where VALUE < 35
+    reset_test_record(fd, EXPR_COMPLEX_REC);
+    select_test_data minmax_data(EXPR_COMPLEX_REC, "minmax_test", json::array({30, 35, 40, 45, 50}));
+    setup_select_test(fd, minmax_data);
+    test_select_operation(fd, "EXPR: min(VALUE, 35) == VALUE", minmax_data,
+        expr::eq(expr::min(expr::var_builtin_int(as_cdt::builtin_var::value), 35),
+                 expr::var_builtin_int(as_cdt::builtin_var::value)),
+        cdt::select_mode::tree,
+        json::array({30, 35})  // min(30, 35)=30, min(35, 35)=35
+    );
+
+    // Test 2: max(VALUE, 35) == VALUE - tests where VALUE > 35
+    test_select_operation(fd, "EXPR: max(VALUE, 35) == VALUE", minmax_data,
+        expr::eq(expr::max(expr::var_builtin_int(as_cdt::builtin_var::value), 35),
+                 expr::var_builtin_int(as_cdt::builtin_var::value)),
+        cdt::select_mode::tree,
+        json::array({35, 40, 45, 50})  // max(35, 35)=35, max(40, 35)=40, etc.
+    );
+
+    // Test 3: Negative number arithmetic - VALUE + 20 < 0
+    reset_test_record(fd, EXPR_COMPLEX_REC);
+    select_test_data neg_data(EXPR_COMPLEX_REC, "negative_nums", json::array({-50, -30, -10, 10, 30, 50}));
+    setup_select_test(fd, neg_data);
+    test_select_operation(fd, "EXPR: Negative numbers - VALUE + 20 < 0", neg_data,
+        expr::lt(expr::add(expr::var_builtin_int(as_cdt::builtin_var::value), 20), 0),
+        cdt::select_mode::tree,
+        json::array({-50, -30})  // -50+20=-30, -30+20=-10, -10+20=10
+    );
+
+    // Test 4: Negative number multiplication - VALUE * -2 > 0
+    test_select_operation(fd, "EXPR: Negative numbers - VALUE * -2 > 0", neg_data,
+        expr::gt(expr::mul(expr::var_builtin_int(as_cdt::builtin_var::value), -2), 0),
+        cdt::select_mode::tree,
+        json::array({-50, -30, -10})  // -50*-2=100, -30*-2=60, -10*-2=20
+    );
+
+    // Test 5: Large number handling
+    reset_test_record(fd, EXPR_COMPLEX_REC);
+    select_test_data overflow_data(EXPR_COMPLEX_REC, "large_nums",
+        json::array({1000000, 2000000, 500000, 250000}));
+    setup_select_test(fd, overflow_data);
+    test_select_operation(fd, "EXPR: Large numbers - VALUE < 1000000", overflow_data,
+        expr::lt(expr::var_builtin_int(as_cdt::builtin_var::value), 1000000),
+        cdt::select_mode::tree,
+        json::array({500000, 250000})
+    );
+
+    // Test 6: min/max chaining - clamping between 20 and 50
+    reset_test_record(fd, EXPR_COMPLEX_REC);
+    select_test_data clamp_data(EXPR_COMPLEX_REC, "clamp_test",
+        json::array({5, 15, 25, 35, 45, 55, 65}));
+    setup_select_test(fd, clamp_data);
+    test_select_operation(fd, "EXPR: Clamping - max(min(VALUE, 50), 20) == VALUE", clamp_data,
+        expr::eq(
+            expr::max(expr::min(expr::var_builtin_int(as_cdt::builtin_var::value), 50), 20),
+            expr::var_builtin_int(as_cdt::builtin_var::value)
+        ),
+        cdt::select_mode::tree,
+        json::array({25, 35, 45})  // Values already in [20, 50] range
+    );
+
+    cout << "  Advanced arithmetic expression tests complete (6 passing, 8 skipped due to server limitations)" << endl;
 }
 
 void test_expression_builtin_vars_advanced(int fd) {
@@ -2569,9 +2846,10 @@ void test_edge_multi_level_contexts(int fd) {
         // Context: navigate level2->level1, then SELECT on list
         auto ctx = generate_context_path_to_list(2, value_ge(100));
 
-        // Expected: all values match (100, 110, 120)
+        // Expected: TREE mode preserves structure! Returns {level2: {level1: [100, 110, 120]}}
+        json expected = json::object({{"level2", json::object({{"level1", json::array({100, 110, 120})}})}});
         test_select_operation_with_context(fd, "Multi-level: TREE depth 2", data,
-            ctx, cdt::select_mode::tree, json::array({100, 110, 120}));
+            ctx, cdt::select_mode::tree, expected);
     }
 
     // Test 2: Depth 10 (medium depth)
@@ -2584,9 +2862,17 @@ void test_edge_multi_level_contexts(int fd) {
 
         auto ctx = generate_context_path_to_list(10, value_ge(210));
 
-        // Expected: values >= 210
+        // Expected: TREE mode preserves all 10 levels of structure with filtered list at bottom
+        // Build expected result: filtered list [210, 220] wrapped in 10 levels of maps
+        json expected_list = json::array({210, 220});
+        json expected = expected_list;
+        for (int level = 1; level <= 10; level++) {
+            string key = "level" + to_string(level);
+            expected = json::object({{key, expected}});
+        }
+
         test_select_operation_with_context(fd, "Multi-level: TREE depth 10", data,
-            ctx, cdt::select_mode::tree, json::array({210, 220}));
+            ctx, cdt::select_mode::tree, expected);
     }
 
     // Test 3: Depth 30+ (stress test - TEMPORARILY DISABLED - causes hang)

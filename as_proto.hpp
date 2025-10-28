@@ -698,14 +698,24 @@ namespace cdt
     }
 
     // CDT SELECT operation - opcode 254 (0xFE)
-    // Selection modes
+    //
+    // IMPORTANT: Context behavior in SELECT operations
+    // - Navigation contexts (map_key, list_index, map_rank, list_rank): Navigate INTO containers (select single element at each level)
+    // - Filter contexts (AS_CDT_CTX_EXP): Filter ALL elements at a level using expression evaluation
+    // - SELECT cannot be wrapped in an outer CDT context - it must be a top-level operation
+    // - Context arrays can mix navigation and filter contexts: [map_key, "foo", list_index, 0, exp, <filter>]
+    //
+    // Selection modes determine output format:
     enum class select_mode : int
     {
-        tree =              0,    // SELECT_TREE - Return entire matching subtrees
-        leaf_list =         1,    // SELECT_LEAF_LIST - Extract values from leaf elements
-        leaf_map_key =      2,    // SELECT_LEAF_MAP_KEY - Extract keys from matching map entries
+        tree =              0,    // SELECT_TREE - Return matching elements WITH container structure preserved
+                                  //   Example: {a: {b: [1,2,3]}} with ctx [map_key "a", map_key "b", exp >1]
+                                  //   Returns: {a: {b: [2,3]}} (preserves nested map structure)
+        leaf_list =         1,    // SELECT_LEAF_LIST - Extract values into flat list (no structure)
+                                  //   Same example returns: [2, 3] (just the values)
+        leaf_map_key =      2,    // SELECT_LEAF_MAP_KEY - Extract keys from matching map entries into flat list
         leaf_map_key_value = 3,    // SELECT_LEAF_MAP_KEY_VALUE - Extract [key, value] pairs from matching map entries
-        apply =             4     // SELECT_APPLY - Modify selected elements
+        apply =             4     // SELECT_APPLY - Modify selected elements in-place and return modified container
     };
 
     // Selection flags
