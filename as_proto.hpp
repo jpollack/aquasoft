@@ -491,6 +491,24 @@ namespace expr
         return {(int)as_exp::op::bin_type, name};
     }
 
+    // Built-in variables for CDT SELECT operations
+    // Variable IDs: AS_EXP_BUILTIN_KEY=0, AS_EXP_BUILTIN_VALUE=1, AS_EXP_BUILTIN_INDEX=2
+    inline json var_builtin_map(int var_id) {
+        return {(int)as_exp::op::var_builtin, (int)as_exp::result_type::t_map, var_id};
+    }
+    inline json var_builtin_list(int var_id) {
+        return {(int)as_exp::op::var_builtin, (int)as_exp::result_type::t_list, var_id};
+    }
+    inline json var_builtin_str(int var_id) {
+        return {(int)as_exp::op::var_builtin, (int)as_exp::result_type::t_str, var_id};
+    }
+    inline json var_builtin_int(int var_id) {
+        return {(int)as_exp::op::var_builtin, (int)as_exp::result_type::t_int, var_id};
+    }
+    inline json var_builtin_float(int var_id) {
+        return {(int)as_exp::op::var_builtin, (int)as_exp::result_type::t_float, var_id};
+    }
+
     // Control flow
     inline json cond(json predicate, json true_expr, json false_expr) {
         return {(int)as_exp::op::cond, predicate, true_expr, false_expr};
@@ -623,5 +641,44 @@ namespace cdt
         const json& operation
     ) {
         return json::array({255, context_array, operation});
+    }
+
+    // CDT SELECT operation - opcode 254 (0xFE)
+    // Selection modes
+    enum class select_mode : uint8_t
+    {
+        tree =         0,    // SELECT_TREE - Return entire matching subtrees
+        leaf_list =    1,    // SELECT_LEAF_LIST - Extract values from leaf elements
+        leaf_map_key = 2,    // SELECT_LEAF_MAP_KEY - Extract keys from matching map entries
+        apply =        4     // SELECT_APPLY - Modify selected elements
+    };
+
+    // Selection flags
+    enum class select_flag : uint8_t
+    {
+        none =    0,
+        no_fail = 0x10  // SELECT_NO_FAIL - Treat AS_EXP_UNK as AS_EXP_FALSE
+    };
+
+    // Build CDT select operation for read modes (tree, leaf_list, leaf_map_key)
+    // Returns: [254, context_array, flags]
+    inline json select(
+        const json& context_array,
+        select_mode mode,
+        select_flag flags = select_flag::none
+    ) {
+        int64_t combined_flags = static_cast<int64_t>(mode) | static_cast<int64_t>(flags);
+        return json::array({254, context_array, combined_flags});
+    }
+
+    // Build CDT select operation for apply mode with transformation expression
+    // Returns: [254, context_array, flags, apply_exp]
+    inline json select_apply(
+        const json& context_array,
+        const json& apply_exp,
+        select_flag flags = select_flag::none
+    ) {
+        int64_t combined_flags = static_cast<int64_t>(select_mode::apply) | static_cast<int64_t>(flags);
+        return json::array({254, context_array, combined_flags, apply_exp});
     }
 }

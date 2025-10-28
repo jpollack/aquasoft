@@ -206,6 +206,10 @@ int main(int argc, char **argv, char **envp)
     cout << string(120, '=') << endl;
 
     int list_rec = 100;
+    int map_rec = 200;
+    int nest_rec = 300;
+    int edge_rec = 400;
+    int select_rec = 500;
 
     // --- List Modify Operations ---
     cout << "\n--- List Modify Operations: Basic Append/Insert ---" << endl;
@@ -448,7 +452,6 @@ int main(int argc, char **argv, char **envp)
     cout << "PART 2: MAP OPERATIONS" << endl;
     cout << string(120, '=') << endl;
 
-    int map_rec = 200;
 
     // --- Map Modify Operations ---
     cout << "\n--- Map Modify Operations: Put, Add, Replace ---" << endl;
@@ -636,7 +639,6 @@ int main(int argc, char **argv, char **envp)
     cout << "PART 3: NESTED OPERATIONS" << endl;
     cout << string(120, '=') << endl;
 
-    int nest_rec = 300;
 
     cout << "\n--- Nested: 2-Level Deep (map[key][index]) ---" << endl;
     reset_test_record(fd, nest_rec);
@@ -710,7 +712,6 @@ int main(int argc, char **argv, char **envp)
     cout << "PART 4: EDGE CASES & BOUNDARY CONDITIONS" << endl;
     cout << string(120, '=') << endl;
 
-    int edge_rec = 400;
 
     cout << "\n--- Edge Case: Negative Indices ---" << endl;
     reset_test_record(fd, edge_rec);
@@ -752,6 +753,155 @@ int main(int argc, char **argv, char **envp)
 
     test_cdt_operation(fd, "list::get(99) [last of 100]", "largelist", as_op::type::t_cdt_read,
         cdt::list::get(99), edge_rec, (int64_t)99);
+
+    // ========================================================================
+    // PART 5: CDT SELECT OPERATIONS
+    // ========================================================================
+
+    cout << "\n" << string(120, '=') << endl;
+    cout << "PART 5: CDT SELECT OPERATIONS (EXPRESSION-BASED FILTERING)" << endl;
+    cout << string(120, '=') << endl;
+
+    cout << "\n--- SELECT: Simple List Filtering (SELECT_TREE mode) ---" << endl;
+    reset_test_record(fd, select_rec);
+
+    // Create test list: [5, 15, 8, 20, 3, 25]
+    json test_list = json::array({5, 15, 8, 20, 3, 25});
+    test_cdt_success(fd, "Setup: Create list [5, 15, 8, 20, 3, 25]", "numbers", as_op::type::t_cdt_modify,
+        cdt::list::append_items(test_list), select_rec);
+
+    // Test 1: Select elements > 10 using expression context
+    // Context: [AS_CDT_CTX_EXP, expression_json]
+    // Build expression: VALUE > 10
+    auto expr_gt_10 = expr::gt(expr::var_builtin_int(1), 10);
+
+    test_cdt_operation(fd, "select: elements > 10 (tree mode)", "numbers", as_op::type::t_cdt_read,
+        cdt::select(
+            json::array({4, expr_gt_10}),  // Context: AS_CDT_CTX_EXP=4, expression as JSON
+            cdt::select_mode::tree
+        ), select_rec, json::array({15, 20, 25}));
+
+    // Test 2: Select elements < 10
+    auto expr_lt_10 = expr::lt(expr::var_builtin_int(1), 10);
+
+    test_cdt_operation(fd, "select: elements < 10 (tree mode)", "numbers", as_op::type::t_cdt_read,
+        cdt::select(
+            json::array({4, expr_lt_10}),
+            cdt::select_mode::tree
+        ), select_rec, json::array({5, 8, 3}));
+
+    // Test 3: Select with no matches
+    auto expr_gt_100 = expr::gt(expr::var_builtin_int(1), 100);
+
+    test_cdt_operation(fd, "select: elements > 100 (no matches)", "numbers", as_op::type::t_cdt_read,
+        cdt::select(
+            json::array({4, expr_gt_100}),
+            cdt::select_mode::tree
+        ), select_rec, json::array());
+
+    cout << "\n--- SELECT: Map Filtering ---" << endl;
+    reset_test_record(fd, select_rec);
+
+    // Create test map: {"a": 10, "b": 20, "c": 5, "d": 30}
+    json test_map = json::object({{"a", 10}, {"b", 20}, {"c", 5}, {"d", 30}});
+    test_cdt_success(fd, "Setup: Create map {a:10, b:20, c:5, d:30}", "scores", as_op::type::t_cdt_modify,
+        cdt::map::put_items(test_map), select_rec);
+
+    // Test 4: Select map entries where value > 15 (tree mode returns matching key-value pairs)
+    auto expr_value_gt_15 = expr::gt(expr::var_builtin_int(1), 15);
+
+    test_cdt_operation(fd, "select: map values > 15 (tree mode)", "scores", as_op::type::t_cdt_read,
+        cdt::select(
+            json::array({4, expr_value_gt_15}),
+            cdt::select_mode::tree
+        ), select_rec, json::object({{"b", 20}, {"d", 30}}));
+
+    // Test 5: Select map keys where value > 15 (leaf_map_key mode returns just keys)
+    test_cdt_operation(fd, "select: map keys where value > 15 (leaf_map_key mode)", "scores", as_op::type::t_cdt_read,
+        cdt::select(
+            json::array({4, expr_value_gt_15}),
+            cdt::select_mode::leaf_map_key
+        ), select_rec, json::array({"b", "d"}));
+
+    cout << "\n--- SELECT: Nested Structures ---" << endl;
+    reset_test_record(fd, select_rec);
+
+    // Create nested structure: {"users": [{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}, {"name": "Charlie", "age": 35}]}
+    json nested_users = json::object({
+        {"users", json::array({
+            json::object({{"name", "Alice"}, {"age", 30}}),
+            json::object({{"name", "Bob"}, {"age", 25}}),
+            json::object({{"name", "Charlie"}, {"age", 35}})
+        })}
+    });
+
+    test_cdt_success(fd, "Setup: Create nested user structure", "data", as_op::type::t_cdt_modify,
+        cdt::map::put_items(nested_users), select_rec);
+
+    // Test 6: Select users where age > 28
+    // Context: [map_key("users"), AS_CDT_CTX_EXP with age > 28]
+    // Need to navigate into the map to get "age" field for comparison
+    auto expr_age_gt_28 = expr::gt(
+        expr::var_builtin_map(1),  // VALUE (the whole user map)
+        28
+    );
+    // For nested maps, we need to access the "age" field within each user
+    // This requires a more complex expression that accesses map values
+    // For now, test with index-based selection
+
+    cout << "\n--- SELECT: Apply Mode (Transformations) ---" << endl;
+    reset_test_record(fd, select_rec);
+
+    // Create list for transformation tests
+    json transform_list = json::array({10, 20, 30, 40, 50});
+    test_cdt_success(fd, "Setup: Create list [10, 20, 30, 40, 50]", "values", as_op::type::t_cdt_modify,
+        cdt::list::append_items(transform_list), select_rec);
+
+    // Test 7: Apply transformation - multiply values > 25 by 2
+    auto expr_gt_25 = expr::gt(expr::var_builtin_int(1), 25);
+
+    // Apply expression: VALUE * 2
+    auto apply_multiply_2 = expr::mul(expr::var_builtin_int(1), 2);
+
+    test_cdt_success(fd, "select_apply: multiply values > 25 by 2", "values", as_op::type::t_cdt_modify,
+        cdt::select_apply(
+            json::array({4, expr_gt_25}),
+            apply_multiply_2
+        ), select_rec);
+
+    // Verify the transformation
+    test_cdt_operation(fd, "Verify: list after apply transformation", "values", as_op::type::t_cdt_read,
+        cdt::list::get_range(0, 5), select_rec, json::array({10, 20, 30, 80, 100}));
+
+	    cout << "\n--- SELECT: Edge Cases ---" << endl;
+		reset_test_record(fd, select_rec);
+
+    // Test 8: Empty container
+    test_cdt_success(fd, "Setup: Create empty list", "empty", as_op::type::t_cdt_modify,
+        cdt::list::append_items(json::array()), select_rec);
+
+    auto expr_always_true = expr::gt(expr::var_builtin_int(1), -1);
+
+    test_cdt_operation(fd, "select: on empty list", "empty", as_op::type::t_cdt_read,
+        cdt::select(
+            json::array({4, expr_always_true}),
+            cdt::select_mode::tree
+        ), select_rec, json::array());
+
+    // Test 9: All elements match
+    reset_test_record(fd, select_rec);
+    json all_match_list = json::array({1, 2, 3, 4, 5});
+    test_cdt_success(fd, "Setup: Create list [1, 2, 3, 4, 5]", "all", as_op::type::t_cdt_modify,
+        cdt::list::append_items(all_match_list), select_rec);
+
+    test_cdt_operation(fd, "select: all elements match", "all", as_op::type::t_cdt_read,
+        cdt::select(
+            json::array({4, expr_always_true}),
+            cdt::select_mode::tree
+        ), select_rec, json::array({1, 2, 3, 4, 5}));
+
+    cout << "\n--- SELECT: Cleanup ---" << endl;
+    reset_test_record(fd, select_rec);
 
     // ========================================================================
     // CLEANUP & SUMMARY
