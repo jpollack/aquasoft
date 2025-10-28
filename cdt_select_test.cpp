@@ -108,6 +108,16 @@ as_msg *visit(as_msg *msg, int ri, int flags)
     return msg;
 }
 
+// Helper function to detect connection failures
+bool check_connection(as_msg* res, const char* context) {
+    if (res == nullptr) {
+        cout << "\n\n*** FATAL: Server connection lost during " << context << " ***" << endl;
+        cout << "*** The server may have crashed. No further tests can run. ***" << endl;
+        return false;
+    }
+    return true;
+}
+
 // Delete test record (copy from cdt_test.cpp)
 void reset_test_record(int fd, int record_id) {
     char buf[2048];
@@ -116,6 +126,11 @@ void reset_test_record(int fd, int record_id) {
 
     visit(req, record_id, AS_MSG_FLAG_WRITE | AS_MSG_FLAG_DELETE);
     call(fd, (void**)&res, req);
+
+    if (!check_connection(res, "reset_test_record")) {
+        exit(2);
+    }
+
     free(res);
 }
 
@@ -135,6 +150,11 @@ void test_cdt_operation(int fd, const char* name, const string& bin_name,
     call(fd, (void**)&res, req, &dur);
 
     cout << left << setw(55) << name << " | ";
+
+    if (!check_connection(res, name)) {
+        cout << "SERVER CONNECTION LOST" << endl;
+        exit(2);
+    }
 
     if (res->result_code == 0) {
         auto op = res->ops_begin();
@@ -171,6 +191,11 @@ void test_cdt_success(int fd, const char* name, const string& bin_name,
     call(fd, (void**)&res, req, &dur);
 
     cout << left << setw(55) << name << " | ";
+
+    if (!check_connection(res, name)) {
+        cout << "SERVER CONNECTION LOST" << endl;
+        exit(2);
+    }
 
     if (res->result_code == 0) {
         cout << "OK";
@@ -325,6 +350,11 @@ void setup_select_test(int fd, const select_test_data& data) {
     }
 
     call(fd, (void**)&res, req);
+
+    if (!check_connection(res, "setup_select_test")) {
+        exit(2);
+    }
+
     dieunless(res->result_code == 0);
     free(res);
 }
@@ -375,6 +405,11 @@ void test_select_apply_operation(int fd, const char* name, const select_test_dat
     string verify_name = string(name) + " [verify]";
     cout << left << setw(55) << verify_name << " | ";
 
+    if (!check_connection(res, verify_name.c_str())) {
+        cout << "SERVER CONNECTION LOST" << endl;
+        exit(2);
+    }
+
     if (res->result_code == 0) {
         auto op = res->ops_begin();
         auto result = validate_result(op, expected);
@@ -414,6 +449,11 @@ void test_select_expect_error(int fd, const char* name, const select_test_data& 
     call(fd, (void**)&res, req, &dur);
 
     cout << left << setw(55) << name << " | ";
+
+    if (!check_connection(res, name)) {
+        cout << "SERVER CONNECTION LOST" << endl;
+        exit(2);
+    }
 
     if (res->result_code == expected_error) {
         cout << "OK: error " << (int)expected_error;
