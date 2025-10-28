@@ -442,6 +442,16 @@ struct as_cdt
 	no_fail      = 4,  // AS_CDT_MAP_NO_FAIL - Don't fail on parameter errors
 	do_partial   = 8   // AS_CDT_MAP_DO_PARTIAL - Partial success on multi-item ops
     };
+
+    // Built-in variables for CDT SELECT expression evaluation
+    // These variables are available during SELECT expression evaluation
+    // and reference different aspects of the current element being evaluated
+    enum class builtin_var : uint8_t
+    {
+	key = 0,    // AS_EXP_BUILTIN_KEY - Map key (available in map contexts only)
+	value = 1,  // AS_EXP_BUILTIN_VALUE - Element value (lists) or entry value (maps)
+	index = 2   // AS_EXP_BUILTIN_INDEX - Element index (0-based position)
+    };
 };
 
 size_t write (int fd, const std::string& str);
@@ -537,20 +547,20 @@ namespace expr
 
     // Built-in variables for CDT SELECT operations
     // Variable IDs: AS_EXP_BUILTIN_KEY=0, AS_EXP_BUILTIN_VALUE=1, AS_EXP_BUILTIN_INDEX=2
-    inline json var_builtin_map(int var_id) {
-        return {as_exp::op::var_builtin, as_exp::result_type::t_map, var_id};
+    inline json var_builtin_map(as_cdt::builtin_var var) {
+        return {as_exp::op::var_builtin, as_exp::result_type::t_map, static_cast<int>(var)};
     }
-    inline json var_builtin_list(int var_id) {
-        return {as_exp::op::var_builtin, as_exp::result_type::t_list, var_id};
+    inline json var_builtin_list(as_cdt::builtin_var var) {
+        return {as_exp::op::var_builtin, as_exp::result_type::t_list, static_cast<int>(var)};
     }
-    inline json var_builtin_str(int var_id) {
-        return {as_exp::op::var_builtin, as_exp::result_type::t_str, var_id};
+    inline json var_builtin_str(as_cdt::builtin_var var) {
+        return {as_exp::op::var_builtin, as_exp::result_type::t_str, static_cast<int>(var)};
     }
-    inline json var_builtin_int(int var_id) {
-        return {as_exp::op::var_builtin, as_exp::result_type::t_int, var_id};
+    inline json var_builtin_int(as_cdt::builtin_var var) {
+        return {as_exp::op::var_builtin, as_exp::result_type::t_int, static_cast<int>(var)};
     }
-    inline json var_builtin_float(int var_id) {
-        return {as_exp::op::var_builtin, as_exp::result_type::t_float, var_id};
+    inline json var_builtin_float(as_cdt::builtin_var var) {
+        return {as_exp::op::var_builtin, as_exp::result_type::t_float, static_cast<int>(var)};
     }
 
     // Control flow

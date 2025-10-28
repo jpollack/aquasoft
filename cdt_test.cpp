@@ -809,7 +809,7 @@ int main(int argc, char **argv, char **envp)
     // Test 1: Select elements > 10 using expression context
     // Context: [AS_CDT_CTX_EXP, expression_json]
     // Build expression: VALUE > 10
-    auto expr_gt_10 = expr::gt(expr::var_builtin_int(1), 10);
+    auto expr_gt_10 = expr::gt(expr::var_builtin_int(as_cdt::builtin_var::value), 10);
 
     test_cdt_operation(fd, "select: elements > 10 (tree mode)", "numbers", as_op::type::t_cdt_read,
         cdt::select(
@@ -818,7 +818,7 @@ int main(int argc, char **argv, char **envp)
         ), select_rec, json::array({15, 20, 25}));
 
     // Test 2: Select elements < 10
-    auto expr_lt_10 = expr::lt(expr::var_builtin_int(1), 10);
+    auto expr_lt_10 = expr::lt(expr::var_builtin_int(as_cdt::builtin_var::value), 10);
 
     test_cdt_operation(fd, "select: elements < 10 (tree mode)", "numbers", as_op::type::t_cdt_read,
         cdt::select(
@@ -827,7 +827,7 @@ int main(int argc, char **argv, char **envp)
         ), select_rec, json::array({5, 8, 3}));
 
     // Test 3: Select with no matches
-    auto expr_gt_100 = expr::gt(expr::var_builtin_int(1), 100);
+    auto expr_gt_100 = expr::gt(expr::var_builtin_int(as_cdt::builtin_var::value), 100);
 
     test_cdt_operation(fd, "select: elements > 100 (no matches)", "numbers", as_op::type::t_cdt_read,
         cdt::select(
@@ -844,7 +844,7 @@ int main(int argc, char **argv, char **envp)
         cdt::map::put_items(test_map), select_rec);
 
     // Test 4: Select map entries where value > 15 (tree mode returns matching key-value pairs)
-    auto expr_value_gt_15 = expr::gt(expr::var_builtin_int(1), 15);
+    auto expr_value_gt_15 = expr::gt(expr::var_builtin_int(as_cdt::builtin_var::value), 15);
 
     test_cdt_operation(fd, "select: map values > 15 (tree mode)", "scores", as_op::type::t_cdt_read,
         cdt::select(
@@ -878,7 +878,7 @@ int main(int argc, char **argv, char **envp)
     // Context: [map_key("users"), AS_CDT_CTX_EXP with age > 28]
     // Need to navigate into the map to get "age" field for comparison
     auto expr_age_gt_28 = expr::gt(
-        expr::var_builtin_map(1),  // VALUE (the whole user map)
+        expr::var_builtin_map(as_cdt::builtin_var::value),  // VALUE (the whole user map)
         28
     );
     // For nested maps, we need to access the "age" field within each user
@@ -894,10 +894,10 @@ int main(int argc, char **argv, char **envp)
         cdt::list::append_items(transform_list), select_rec);
 
     // Test 7: Apply transformation - multiply values > 25 by 2
-    auto expr_gt_25 = expr::gt(expr::var_builtin_int(1), 25);
+    auto expr_gt_25 = expr::gt(expr::var_builtin_int(as_cdt::builtin_var::value), 25);
 
     // Apply expression: VALUE * 2
-    auto apply_multiply_2 = expr::mul(expr::var_builtin_int(1), 2);
+    auto apply_multiply_2 = expr::mul(expr::var_builtin_int(as_cdt::builtin_var::value), 2);
 
     test_cdt_success(fd, "select_apply: multiply values > 25 by 2", "values", as_op::type::t_cdt_modify,
         cdt::select_apply(
@@ -916,7 +916,7 @@ int main(int argc, char **argv, char **envp)
     test_cdt_success(fd, "Setup: Create empty list", "empty", as_op::type::t_cdt_modify,
         cdt::list::append_items(json::array()), select_rec);
 
-    auto expr_always_true = expr::gt(expr::var_builtin_int(1), -1);
+    auto expr_always_true = expr::gt(expr::var_builtin_int(as_cdt::builtin_var::value), -1);
 
     test_cdt_operation(fd, "select: on empty list", "empty", as_op::type::t_cdt_read,
         cdt::select(

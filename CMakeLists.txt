@@ -65,6 +65,10 @@ target_link_libraries(expr_test Threads::Threads nlohmann_json::nlohmann_json)
 add_executable(cdt_test ripemd160.cpp cdt_test.cpp as_proto.cpp util.cpp)
 target_link_libraries(cdt_test Threads::Threads nlohmann_json::nlohmann_json)
 
+# CDT SELECT comprehensive test suite
+add_executable(cdt_select_test cdt_select_test.cpp as_proto.cpp util.cpp ripemd160.cpp)
+target_link_libraries(cdt_select_test nlohmann_json::nlohmann_json)
+
 add_executable(test_expr_msgpack test_expr_msgpack.cpp as_proto.cpp util.cpp ripemd160.cpp)
 target_link_libraries(test_expr_msgpack nlohmann_json::nlohmann_json)
 
@@ -76,3 +80,6 @@ target_link_libraries(tcp_proxy Threads::Threads nlohmann_json::nlohmann_json)
 
 add_executable(test_ordered_list test_ordered_list.cpp as_proto.cpp util.cpp ripemd160.cpp)
 target_link_libraries(test_ordered_list Threads::Threads nlohmann_json::nlohmann_json)
+
+add_executable(test_simple_select test_simple_select.cpp as_proto.cpp util.cpp ripemd160.cpp)
+target_link_libraries(test_simple_select nlohmann_json::nlohmann_json)
