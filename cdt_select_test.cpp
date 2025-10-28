@@ -315,8 +315,8 @@ struct select_test_data {
 
 // Setup test data (write initial value to bin)
 void setup_select_test(int fd, const select_test_data& data) {
-    char buf[4096];
-    as_msg *req = (as_msg *)(buf + 2048);
+    char buf[8192];
+    as_msg *req = (as_msg *)(buf + 4096);
     as_msg *res = nullptr;
 
     visit(req, data.record_id, AS_MSG_FLAG_WRITE);
