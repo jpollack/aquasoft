@@ -239,7 +239,7 @@ int main(int argc, char **argv, char **envp)
         cdt::list::insert(1, 15), list_rec, (int64_t)expected_list.size());
 
     // Append items: [10, 15, 20, 30] -> [10, 15, 20, 30, 40, 50]
-    json items = json::array({40, 50});
+    json items = {40, 50};
     for (auto& item : items) {
         expected_list.push_back(item);
     }
@@ -262,7 +262,7 @@ int main(int argc, char **argv, char **envp)
     // Trim (keep index 1-4): [10, 15, 25, 30, 45, 50] -> [15, 25, 30, 45]
     // Trim returns the count of elements REMOVED, not remaining
     int elements_removed = expected_list.size() - 4;  // 6 - 4 = 2 elements removed
-    json trimmed = json::array({expected_list[1], expected_list[2], expected_list[3], expected_list[4]});
+    json trimmed = {expected_list[1], expected_list[2], expected_list[3], expected_list[4]};
     expected_list = trimmed;
     test_cdt_operation(fd, "list::trim(1, 4)", "mylist", as_op::type::t_cdt_modify,
         cdt::list::trim(1, 4), list_rec, (int64_t)elements_removed);
@@ -276,14 +276,14 @@ int main(int argc, char **argv, char **envp)
         cdt::list::pop(2), list_rec, (int64_t)popped);
 
     // Pop range: [15, 25, 45] -> [15]
-    json popped_range = json::array({expected_list[1], expected_list[2]});
+    json popped_range = {expected_list[1], expected_list[2]};
     expected_list.erase(expected_list.begin() + 1, expected_list.end());
     test_cdt_operation(fd, "list::pop_range(1, 2)", "mylist", as_op::type::t_cdt_modify,
         cdt::list::pop_range(1, 2), list_rec, popped_range);
 
     // Rebuild for sort test
     reset_test_record(fd, list_rec);
-    json unsorted = json::array({50, 10, 30, 20, 40});
+    json unsorted = {50, 10, 30, 20, 40};
     test_cdt_success(fd, "list::append_items([50,10,30,20,40])", "mylist", as_op::type::t_cdt_modify,
         cdt::list::append_items(unsorted), list_rec);
 
@@ -292,7 +292,7 @@ int main(int argc, char **argv, char **envp)
         cdt::list::sort(), list_rec);
 
     // Verify sorted order
-    json sorted_expected = json::array({10, 20, 30, 40, 50});
+    json sorted_expected = {10, 20, 30, 40, 50};
     test_cdt_operation(fd, "list::get_range(0, 5) [after sort]", "mylist", as_op::type::t_cdt_read,
         cdt::list::get_range(0, 5), list_rec, sorted_expected);
 
@@ -306,7 +306,7 @@ int main(int argc, char **argv, char **envp)
     // --- List Read Operations ---
     cout << "\n--- List Read Operations: Size, Get, Get Range ---" << endl;
     reset_test_record(fd, list_rec);
-    json read_list = json::array({100, 200, 300, 400, 500});
+    json read_list = {100, 200, 300, 400, 500};
     test_cdt_success(fd, "Setup: list::append_items([100,200,300,400,500])", "readlist", as_op::type::t_cdt_modify,
         cdt::list::append_items(read_list), list_rec);
 
@@ -358,7 +358,7 @@ int main(int argc, char **argv, char **envp)
 
     // List with duplicates for value-based operations
     reset_test_record(fd, list_rec);
-    json dup_list = json::array({5, 10, 5, 20, 5, 30});
+    json dup_list = {5, 10, 5, 20, 5, 30};
     test_cdt_success(fd, "Setup: list::append_items([5,10,5,20,5,30])", "duplist", as_op::type::t_cdt_modify,
         cdt::list::append_items(dup_list), list_rec);
 
@@ -385,7 +385,7 @@ int main(int argc, char **argv, char **envp)
 
     cout << "\n--- List Remove By Index/Value/Rank Operations ---" << endl;
     reset_test_record(fd, list_rec);
-    json remove_list = json::array({10, 20, 30, 40, 50});
+    json remove_list = {10, 20, 30, 40, 50};
     test_cdt_success(fd, "Setup: list::append_items([10,20,30,40,50])", "remlist", as_op::type::t_cdt_modify,
         cdt::list::append_items(remove_list), list_rec);
 
@@ -557,7 +557,7 @@ int main(int argc, char **argv, char **envp)
     // K_ORDERED map for interval tests
     reset_test_record(fd, map_rec);
     test_cdt_success(fd, "map::set_type(K_ORDERED)", "ordmap", as_op::type::t_cdt_modify,
-        cdt::map::set_type(1), map_rec);
+        cdt::map::set_type(as_cdt::map_order::k_ordered), map_rec);
 
     json ord_map = json::object({{"a", 10}, {"b", 20}, {"c", 30}, {"d", 40}, {"e", 50}});
     test_cdt_success(fd, "Setup: map::put_items({\"a\":10,\"b\":20,\"c\":30,\"d\":40,\"e\":50})", "ordmap", as_op::type::t_cdt_modify,
@@ -766,7 +766,7 @@ int main(int argc, char **argv, char **envp)
     reset_test_record(fd, select_rec);
 
     // Create test list: [5, 15, 8, 20, 3, 25]
-    json test_list = json::array({5, 15, 8, 20, 3, 25});
+    json test_list = {5, 15, 8, 20, 3, 25};
     test_cdt_success(fd, "Setup: Create list [5, 15, 8, 20, 3, 25]", "numbers", as_op::type::t_cdt_modify,
         cdt::list::append_items(test_list), select_rec);
 
@@ -777,7 +777,7 @@ int main(int argc, char **argv, char **envp)
 
     test_cdt_operation(fd, "select: elements > 10 (tree mode)", "numbers", as_op::type::t_cdt_read,
         cdt::select(
-            json::array({4, expr_gt_10}),  // Context: AS_CDT_CTX_EXP=4, expression as JSON
+            json::array({as_cdt::ctx_special::exp, expr_gt_10}),  // Context: AS_CDT_CTX_EXP=4, expression as JSON
             cdt::select_mode::tree
         ), select_rec, json::array({15, 20, 25}));
 
@@ -786,7 +786,7 @@ int main(int argc, char **argv, char **envp)
 
     test_cdt_operation(fd, "select: elements < 10 (tree mode)", "numbers", as_op::type::t_cdt_read,
         cdt::select(
-            json::array({4, expr_lt_10}),
+            json::array({as_cdt::ctx_special::exp, expr_lt_10}),
             cdt::select_mode::tree
         ), select_rec, json::array({5, 8, 3}));
 
@@ -795,7 +795,7 @@ int main(int argc, char **argv, char **envp)
 
     test_cdt_operation(fd, "select: elements > 100 (no matches)", "numbers", as_op::type::t_cdt_read,
         cdt::select(
-            json::array({4, expr_gt_100}),
+            json::array({as_cdt::ctx_special::exp, expr_gt_100}),
             cdt::select_mode::tree
         ), select_rec, json::array());
 
@@ -812,14 +812,14 @@ int main(int argc, char **argv, char **envp)
 
     test_cdt_operation(fd, "select: map values > 15 (tree mode)", "scores", as_op::type::t_cdt_read,
         cdt::select(
-            json::array({4, expr_value_gt_15}),
+            json::array({as_cdt::ctx_special::exp, expr_value_gt_15}),
             cdt::select_mode::tree
         ), select_rec, json::object({{"b", 20}, {"d", 30}}));
 
     // Test 5: Select map keys where value > 15 (leaf_map_key mode returns just keys)
     test_cdt_operation(fd, "select: map keys where value > 15 (leaf_map_key mode)", "scores", as_op::type::t_cdt_read,
         cdt::select(
-            json::array({4, expr_value_gt_15}),
+            json::array({as_cdt::ctx_special::exp, expr_value_gt_15}),
             cdt::select_mode::leaf_map_key
         ), select_rec, json::array({"b", "d"}));
 
@@ -853,7 +853,7 @@ int main(int argc, char **argv, char **envp)
     reset_test_record(fd, select_rec);
 
     // Create list for transformation tests
-    json transform_list = json::array({10, 20, 30, 40, 50});
+    json transform_list = {10, 20, 30, 40, 50};
     test_cdt_success(fd, "Setup: Create list [10, 20, 30, 40, 50]", "values", as_op::type::t_cdt_modify,
         cdt::list::append_items(transform_list), select_rec);
 
@@ -865,7 +865,7 @@ int main(int argc, char **argv, char **envp)
 
     test_cdt_success(fd, "select_apply: multiply values > 25 by 2", "values", as_op::type::t_cdt_modify,
         cdt::select_apply(
-            json::array({4, expr_gt_25}),
+            json::array({as_cdt::ctx_special::exp, expr_gt_25}),
             apply_multiply_2
         ), select_rec);
 
@@ -884,19 +884,19 @@ int main(int argc, char **argv, char **envp)
 
     test_cdt_operation(fd, "select: on empty list", "empty", as_op::type::t_cdt_read,
         cdt::select(
-            json::array({4, expr_always_true}),
+            json::array({as_cdt::ctx_special::exp, expr_always_true}),
             cdt::select_mode::tree
         ), select_rec, json::array());
 
     // Test 9: All elements match
     reset_test_record(fd, select_rec);
-    json all_match_list = json::array({1, 2, 3, 4, 5});
+    json all_match_list = {1, 2, 3, 4, 5};
     test_cdt_success(fd, "Setup: Create list [1, 2, 3, 4, 5]", "all", as_op::type::t_cdt_modify,
         cdt::list::append_items(all_match_list), select_rec);
 
     test_cdt_operation(fd, "select: all elements match", "all", as_op::type::t_cdt_read,
         cdt::select(
-            json::array({4, expr_always_true}),
+            json::array({as_cdt::ctx_special::exp, expr_always_true}),
             cdt::select_mode::tree
         ), select_rec, json::array({1, 2, 3, 4, 5}));
 

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 project(dtest LANGUAGES CXX C)
-set(CMAKE_CXX_STANDARD 20)	
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 
 set(default_build_type "Debug")
@@ -73,10 +73,3 @@ target_link_libraries(simple_bin_read_test Threads::Threads nlohmann_json::nlohm
 
 add_executable(tcp_proxy tcp_proxy.cpp as_proto.cpp util.cpp ripemd160.cpp)
 target_link_libraries(tcp_proxy Threads::Threads nlohmann_json::nlohmann_json)
-
-add_executable(debug_select debug_select.cpp as_proto.cpp util.cpp ripemd160.cpp)
-target_link_libraries(debug_select nlohmann_json::nlohmann_json)
-
-add_executable(test_select_minimal test_select_minimal.cpp as_proto.cpp util.cpp ripemd160.cpp)
-target_link_libraries(test_select_minimal nlohmann_json::nlohmann_json)
-

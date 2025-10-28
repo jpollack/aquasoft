@@ -180,7 +180,7 @@ struct as_msg
 // Expression opcodes
 struct as_exp
 {
-    enum class op : uint8_t
+    enum class op : int
     {
 	// Comparison
 	cmp_eq =	1,
@@ -250,7 +250,7 @@ struct as_exp
 	call =		127
     };
 
-    enum class result_type : uint8_t
+    enum class result_type : int
     {
 	t_nil =		0,
 	t_bool =	1,
@@ -264,7 +264,7 @@ struct as_exp
 	t_hll =		9
     };
 
-    enum class flags : uint8_t
+    enum class flags : int
     {
 	none =         0,       // Default - no special flags
 	create_only =  1 << 0,  // Only execute if record doesn't exist
@@ -278,7 +278,7 @@ struct as_exp
 // CDT opcodes
 struct as_cdt
 {
-    enum class list_op : uint8_t
+    enum class list_op : int
     {
 	set_type =			0,
 	append =			1,
@@ -317,7 +317,7 @@ struct as_cdt
 	remove_by_value_rel_rank_range = 40
     };
 
-    enum class map_op : uint8_t
+    enum class map_op : int
     {
 	set_type =			64,
 	add =				65,
@@ -358,7 +358,7 @@ struct as_cdt
 	get_by_value_rel_rank_range =	110
     };
 
-    enum class return_type : uint8_t
+    enum class return_type : int
     {
 	none =		0,  // Don't return anything
 	index =		1,  // Return index
@@ -373,7 +373,7 @@ struct as_cdt
     };
 
     // CDT context types for nested operations
-    enum class ctx_type : uint8_t
+    enum class ctx_type : int
     {
 	list_index = 0x10,  // Navigate to list element by index
 	list_rank =  0x11,  // Navigate to list element by rank
@@ -385,7 +385,7 @@ struct as_cdt
     };
 
     // CDT context creation flags (for nested modify operations)
-    enum class ctx_create : uint16_t
+    enum class ctx_create : int
     {
 	// List creation types
 	list_unordered =        0x40,
@@ -397,6 +397,48 @@ struct as_cdt
 	map_kv_ordered = 0xc0,
 	// Persist index flag
 	persist_index =  0x100,
+    };
+
+    // Special context types (beyond basic navigation)
+    enum class ctx_special : int
+    {
+	exp = 4  // AS_CDT_CTX_EXP - Expression-based context filter
+    };
+
+    // List ordering flags
+    enum class list_order : int
+    {
+	unordered = 0x00,  // AS_PACKED_LIST_FLAG_NONE
+	ordered   = 0x01   // AS_PACKED_LIST_FLAG_ORDERED
+    };
+
+    // Map ordering flags
+    enum class map_order : int
+    {
+	unordered  = 0x00,  // AS_PACKED_MAP_FLAG_NONE
+	k_ordered  = 0x01,  // AS_PACKED_MAP_FLAG_K_ORDERED (keys sorted)
+	v_ordered  = 0x02,  // AS_PACKED_MAP_FLAG_V_ORDERED (values sorted, requires k_ordered)
+	kv_ordered = 0x03   // AS_PACKED_MAP_FLAG_KV_ORDERED (key-value multi-map)
+    };
+
+    // List write flags (from server cdt.c)
+    enum class list_write_flags : int
+    {
+	default_       = 0,  // No special behavior
+	add_unique     = 1,  // AS_CDT_LIST_ADD_UNIQUE - Fail if element exists
+	insert_bounded = 2,  // AS_CDT_LIST_INSERT_BOUNDED - Fail if index out of bounds
+	no_fail        = 4,  // AS_CDT_LIST_NO_FAIL - Don't fail on parameter errors
+	do_partial     = 8   // AS_CDT_LIST_DO_PARTIAL - Partial success on multi-element ops
+    };
+
+    // Map write flags (from server cdt.c)
+    enum class map_write_flags : int
+    {
+	default_     = 0,  // No special behavior
+	create_only  = 1,  // AS_CDT_MAP_CREATE_ONLY - Fail if key exists (like ADD)
+	update_only  = 2,  // AS_CDT_MAP_UPDATE_ONLY - Fail if key doesn't exist
+	no_fail      = 4,  // AS_CDT_MAP_NO_FAIL - Don't fail on parameter errors
+	do_partial   = 8   // AS_CDT_MAP_DO_PARTIAL - Partial success on multi-item ops
     };
 };
 
@@ -424,94 +466,94 @@ namespace expr
     using json = nlohmann::json;
 
     // Comparison operations
-    inline json eq  (json a, json b) { return {(int)as_exp::op::cmp_eq, a, b}; }
-    inline json ne  (json a, json b) { return {(int)as_exp::op::cmp_ne, a, b}; }
-    inline json gt  (json a, json b) { return {(int)as_exp::op::cmp_gt, a, b}; }
-    inline json ge  (json a, json b) { return {(int)as_exp::op::cmp_ge, a, b}; }
-    inline json lt  (json a, json b) { return {(int)as_exp::op::cmp_lt, a, b}; }
-    inline json le  (json a, json b) { return {(int)as_exp::op::cmp_le, a, b}; }
-    inline json regex(json a, json b) { return {(int)as_exp::op::cmp_regex, a, b}; }
-    inline json geo (json a, json b) { return {(int)as_exp::op::cmp_geo, a, b}; }
+    inline json eq  (json a, json b) { return {as_exp::op::cmp_eq, a, b}; }
+    inline json ne  (json a, json b) { return {as_exp::op::cmp_ne, a, b}; }
+    inline json gt  (json a, json b) { return {as_exp::op::cmp_gt, a, b}; }
+    inline json ge  (json a, json b) { return {as_exp::op::cmp_ge, a, b}; }
+    inline json lt  (json a, json b) { return {as_exp::op::cmp_lt, a, b}; }
+    inline json le  (json a, json b) { return {as_exp::op::cmp_le, a, b}; }
+    inline json regex(json a, json b) { return {as_exp::op::cmp_regex, a, b}; }
+    inline json geo (json a, json b) { return {as_exp::op::cmp_geo, a, b}; }
 
     // Logical operations
-    inline json and_(json a, json b) { return {(int)as_exp::op::and_, a, b}; }
-    inline json or_ (json a, json b) { return {(int)as_exp::op::or_, a, b}; }
-    inline json not_(json a)         { return {(int)as_exp::op::not_, a}; }
-    inline json exclusive(json a, json b) { return {(int)as_exp::op::exclusive, a, b}; }
+    inline json and_(json a, json b) { return {as_exp::op::and_, a, b}; }
+    inline json or_ (json a, json b) { return {as_exp::op::or_, a, b}; }
+    inline json not_(json a)         { return {as_exp::op::not_, a}; }
+    inline json exclusive(json a, json b) { return {as_exp::op::exclusive, a, b}; }
 
     // Arithmetic operations
-    inline json add  (json a, json b) { return {(int)as_exp::op::add, a, b}; }
-    inline json sub  (json a, json b) { return {(int)as_exp::op::sub, a, b}; }
-    inline json mul  (json a, json b) { return {(int)as_exp::op::mul, a, b}; }
-    inline json div  (json a, json b) { return {(int)as_exp::op::div, a, b}; }
-    inline json pow  (json a, json b) { return {(int)as_exp::op::pow, a, b}; }
-    inline json log  (json a, json b) { return {(int)as_exp::op::log, a, b}; }
-    inline json mod  (json a, json b) { return {(int)as_exp::op::mod, a, b}; }
-    inline json abs  (json a)         { return {(int)as_exp::op::abs, a}; }
-    inline json floor(json a)         { return {(int)as_exp::op::floor, a}; }
-    inline json ceil (json a)         { return {(int)as_exp::op::ceil, a}; }
+    inline json add  (json a, json b) { return {as_exp::op::add, a, b}; }
+    inline json sub  (json a, json b) { return {as_exp::op::sub, a, b}; }
+    inline json mul  (json a, json b) { return {as_exp::op::mul, a, b}; }
+    inline json div  (json a, json b) { return {as_exp::op::div, a, b}; }
+    inline json pow  (json a, json b) { return {as_exp::op::pow, a, b}; }
+    inline json log  (json a, json b) { return {as_exp::op::log, a, b}; }
+    inline json mod  (json a, json b) { return {as_exp::op::mod, a, b}; }
+    inline json abs  (json a)         { return {as_exp::op::abs, a}; }
+    inline json floor(json a)         { return {as_exp::op::floor, a}; }
+    inline json ceil (json a)         { return {as_exp::op::ceil, a}; }
 
     // Type conversion
-    inline json to_int  (json a) { return {(int)as_exp::op::to_int, a}; }
-    inline json to_float(json a) { return {(int)as_exp::op::to_float, a}; }
+    inline json to_int  (json a) { return {as_exp::op::to_int, a}; }
+    inline json to_float(json a) { return {as_exp::op::to_float, a}; }
 
     // Bitwise operations
-    inline json int_and    (json a, json b) { return {(int)as_exp::op::int_and, a, b}; }
-    inline json int_or     (json a, json b) { return {(int)as_exp::op::int_or, a, b}; }
-    inline json int_xor    (json a, json b) { return {(int)as_exp::op::int_xor, a, b}; }
-    inline json int_not    (json a)         { return {(int)as_exp::op::int_not, a}; }
-    inline json int_lshift (json a, json b) { return {(int)as_exp::op::int_lshift, a, b}; }
-    inline json int_rshift (json a, json b) { return {(int)as_exp::op::int_rshift, a, b}; }
-    inline json int_arshift(json a, json b) { return {(int)as_exp::op::int_arshift, a, b}; }
-    inline json int_count  (json a)         { return {(int)as_exp::op::int_count, a}; }
-    inline json int_lscan  (json a, json b) { return {(int)as_exp::op::int_lscan, a, b}; }
-    inline json int_rscan  (json a, json b) { return {(int)as_exp::op::int_rscan, a, b}; }
+    inline json int_and    (json a, json b) { return {as_exp::op::int_and, a, b}; }
+    inline json int_or     (json a, json b) { return {as_exp::op::int_or, a, b}; }
+    inline json int_xor    (json a, json b) { return {as_exp::op::int_xor, a, b}; }
+    inline json int_not    (json a)         { return {as_exp::op::int_not, a}; }
+    inline json int_lshift (json a, json b) { return {as_exp::op::int_lshift, a, b}; }
+    inline json int_rshift (json a, json b) { return {as_exp::op::int_rshift, a, b}; }
+    inline json int_arshift(json a, json b) { return {as_exp::op::int_arshift, a, b}; }
+    inline json int_count  (json a)         { return {as_exp::op::int_count, a}; }
+    inline json int_lscan  (json a, json b) { return {as_exp::op::int_lscan, a, b}; }
+    inline json int_rscan  (json a, json b) { return {as_exp::op::int_rscan, a, b}; }
 
     // Min/Max
-    inline json min(json a, json b) { return {(int)as_exp::op::min, a, b}; }
-    inline json max(json a, json b) { return {(int)as_exp::op::max, a, b}; }
+    inline json min(json a, json b) { return {as_exp::op::min, a, b}; }
+    inline json max(json a, json b) { return {as_exp::op::max, a, b}; }
 
     // Metadata operations
-    inline json digest_mod(int mod_value)    { return {(int)as_exp::op::meta_digest_mod, mod_value}; }
-    inline json last_update()   { return {(int)as_exp::op::meta_last_update}; }
-    inline json since_update()  { return {(int)as_exp::op::meta_since_update}; }
-    inline json void_time()     { return {(int)as_exp::op::meta_void_time}; }
-    inline json ttl()           { return {(int)as_exp::op::meta_ttl}; }
-    inline json set_name()      { return {(int)as_exp::op::meta_set_name}; }
-    inline json key_exists()    { return {(int)as_exp::op::meta_key_exists}; }
-    inline json is_tombstone()  { return {(int)as_exp::op::meta_is_tombstone}; }
-    inline json record_size()   { return {(int)as_exp::op::meta_record_size}; }
+    inline json digest_mod(int mod_value)    { return {as_exp::op::meta_digest_mod, mod_value}; }
+    inline json last_update()   { return {as_exp::op::meta_last_update}; }
+    inline json since_update()  { return {as_exp::op::meta_since_update}; }
+    inline json void_time()     { return {as_exp::op::meta_void_time}; }
+    inline json ttl()           { return {as_exp::op::meta_ttl}; }
+    inline json set_name()      { return {as_exp::op::meta_set_name}; }
+    inline json key_exists()    { return {as_exp::op::meta_key_exists}; }
+    inline json is_tombstone()  { return {as_exp::op::meta_is_tombstone}; }
+    inline json record_size()   { return {as_exp::op::meta_record_size}; }
 
     // Record/Bin operations
-    inline json rec_key(as_exp::result_type type = as_exp::result_type::t_int) { return {(int)as_exp::op::rec_key, (int)type}; }
+    inline json rec_key(as_exp::result_type type = as_exp::result_type::t_int) { return {as_exp::op::rec_key, type}; }
     inline json bin(const std::string& name, as_exp::result_type type = as_exp::result_type::t_int) {
-        return {(int)as_exp::op::bin, (int)type, name};
+        return {as_exp::op::bin, type, name};
     }
     inline json bin_type(const std::string& name) {
-        return {(int)as_exp::op::bin_type, name};
+        return {as_exp::op::bin_type, name};
     }
 
     // Built-in variables for CDT SELECT operations
     // Variable IDs: AS_EXP_BUILTIN_KEY=0, AS_EXP_BUILTIN_VALUE=1, AS_EXP_BUILTIN_INDEX=2
     inline json var_builtin_map(int var_id) {
-        return {(int)as_exp::op::var_builtin, (int)as_exp::result_type::t_map, var_id};
+        return {as_exp::op::var_builtin, as_exp::result_type::t_map, var_id};
     }
     inline json var_builtin_list(int var_id) {
-        return {(int)as_exp::op::var_builtin, (int)as_exp::result_type::t_list, var_id};
+        return {as_exp::op::var_builtin, as_exp::result_type::t_list, var_id};
     }
     inline json var_builtin_str(int var_id) {
-        return {(int)as_exp::op::var_builtin, (int)as_exp::result_type::t_str, var_id};
+        return {as_exp::op::var_builtin, as_exp::result_type::t_str, var_id};
     }
     inline json var_builtin_int(int var_id) {
-        return {(int)as_exp::op::var_builtin, (int)as_exp::result_type::t_int, var_id};
+        return {as_exp::op::var_builtin, as_exp::result_type::t_int, var_id};
     }
     inline json var_builtin_float(int var_id) {
-        return {(int)as_exp::op::var_builtin, (int)as_exp::result_type::t_float, var_id};
+        return {as_exp::op::var_builtin, as_exp::result_type::t_float, var_id};
     }
 
     // Control flow
     inline json cond(json predicate, json true_expr, json false_expr) {
-        return {(int)as_exp::op::cond, predicate, true_expr, false_expr};
+        return {as_exp::op::cond, predicate, true_expr, false_expr};
     }
 }
 
@@ -524,113 +566,113 @@ namespace cdt
     namespace ctx
     {
         // List context navigation
-        inline json list_index(int index) { return {(int)as_cdt::ctx_type::list_index, index}; }
-        inline json list_rank(int rank) { return {(int)as_cdt::ctx_type::list_rank, rank}; }
-        inline json list_value(json value) { return {(int)as_cdt::ctx_type::list_value, value}; }
+        inline json list_index(int index) { return {as_cdt::ctx_type::list_index, index}; }
+        inline json list_rank(int rank) { return {as_cdt::ctx_type::list_rank, rank}; }
+        inline json list_value(json value) { return {as_cdt::ctx_type::list_value, value}; }
 
         // Map context navigation
-        inline json map_index(int index) { return {(int)as_cdt::ctx_type::map_index, index}; }
-        inline json map_rank(int rank) { return {(int)as_cdt::ctx_type::map_rank, rank}; }
-        inline json map_key(json key) { return {(int)as_cdt::ctx_type::map_key, key}; }
-        inline json map_value(json value) { return {(int)as_cdt::ctx_type::map_value, value}; }
+        inline json map_index(int index) { return {as_cdt::ctx_type::map_index, index}; }
+        inline json map_rank(int rank) { return {as_cdt::ctx_type::map_rank, rank}; }
+        inline json map_key(json key) { return {as_cdt::ctx_type::map_key, key}; }
+        inline json map_value(json value) { return {as_cdt::ctx_type::map_value, value}; }
     }
 
     namespace list
     {
         // Simple operations (no parameters beyond opcode)
-        inline json size()  { return {(int)as_cdt::list_op::size}; }
-        inline json clear() { return {(int)as_cdt::list_op::clear}; }
-        inline json sort()  { return {(int)as_cdt::list_op::sort}; }
+        inline json size()  { return {as_cdt::list_op::size}; }
+        inline json clear() { return {as_cdt::list_op::clear}; }
+        inline json sort()  { return {as_cdt::list_op::sort}; }
 
         // Modify operations
-        inline json set_type(int type_flags) { return {(int)as_cdt::list_op::set_type, type_flags}; }
-        inline json append(json value) { return {(int)as_cdt::list_op::append, value}; }
-        inline json append_items(json list) { return {(int)as_cdt::list_op::append_items, list}; }
-        inline json insert(json index, json value) { return {(int)as_cdt::list_op::insert, index, value}; }
-        inline json insert_items(json index, json list) { return {(int)as_cdt::list_op::insert_items, index, list}; }
-        inline json set(json index, json value) { return {(int)as_cdt::list_op::set, index, value}; }
-        inline json trim(json index, json count) { return {(int)as_cdt::list_op::trim, index, count}; }
-        inline json increment(json index, json delta) { return {(int)as_cdt::list_op::increment, index, delta}; }
+        inline json set_type(as_cdt::list_order order) { return {as_cdt::list_op::set_type, order}; }
+        inline json append(json value) { return {as_cdt::list_op::append, value}; }
+        inline json append_items(json list) { return {as_cdt::list_op::append_items, list}; }
+        inline json insert(json index, json value) { return {as_cdt::list_op::insert, index, value}; }
+        inline json insert_items(json index, json list) { return {as_cdt::list_op::insert_items, index, list}; }
+        inline json set(json index, json value) { return {as_cdt::list_op::set, index, value}; }
+        inline json trim(json index, json count) { return {as_cdt::list_op::trim, index, count}; }
+        inline json increment(json index, json delta) { return {as_cdt::list_op::increment, index, delta}; }
 
         // Pop operations (modify + return)
-        inline json pop(json index) { return {(int)as_cdt::list_op::pop, index}; }
-        inline json pop_range(json index, json count) { return {(int)as_cdt::list_op::pop_range, index, count}; }
+        inline json pop(json index) { return {as_cdt::list_op::pop, index}; }
+        inline json pop_range(json index, json count) { return {as_cdt::list_op::pop_range, index, count}; }
 
         // Remove operations
-        inline json remove(json index) { return {(int)as_cdt::list_op::remove, index}; }
-        inline json remove_range(json index, json count) { return {(int)as_cdt::list_op::remove_range, index, count}; }
-        inline json remove_by_index(json index, as_cdt::return_type rt = as_cdt::return_type::none) { return {(int)as_cdt::list_op::remove_by_index, (int)rt, index}; }
-        inline json remove_by_value(json value, as_cdt::return_type rt = as_cdt::return_type::none) { return {(int)as_cdt::list_op::remove_by_value, (int)rt, value}; }
-        inline json remove_by_rank(json rank, as_cdt::return_type rt = as_cdt::return_type::none) { return {(int)as_cdt::list_op::remove_by_rank, (int)rt, rank}; }
-        inline json remove_all_by_value(json value, as_cdt::return_type rt = as_cdt::return_type::none) { return {(int)as_cdt::list_op::remove_all_by_value, (int)rt, value}; }
-        inline json remove_all_by_value_list(json values, as_cdt::return_type rt = as_cdt::return_type::none) { return {(int)as_cdt::list_op::remove_all_by_value_list, (int)rt, values}; }
-        inline json remove_by_index_range(json index, json count, as_cdt::return_type rt = as_cdt::return_type::none) { return {(int)as_cdt::list_op::remove_by_index_range, (int)rt, index, count}; }
-        inline json remove_by_value_interval(json value_start, json value_end, as_cdt::return_type rt = as_cdt::return_type::none) { return {(int)as_cdt::list_op::remove_by_value_interval, (int)rt, value_start, value_end}; }
-        inline json remove_by_rank_range(json rank, json count, as_cdt::return_type rt = as_cdt::return_type::none) { return {(int)as_cdt::list_op::remove_by_rank_range, (int)rt, rank, count}; }
-        inline json remove_by_value_rel_rank_range(json value, json rank, json count, as_cdt::return_type rt = as_cdt::return_type::none) { return {(int)as_cdt::list_op::remove_by_value_rel_rank_range, (int)rt, value, rank, count}; }
+        inline json remove(json index) { return {as_cdt::list_op::remove, index}; }
+        inline json remove_range(json index, json count) { return {as_cdt::list_op::remove_range, index, count}; }
+        inline json remove_by_index(json index, as_cdt::return_type rt = as_cdt::return_type::none) { return {as_cdt::list_op::remove_by_index, rt, index}; }
+        inline json remove_by_value(json value, as_cdt::return_type rt = as_cdt::return_type::none) { return {as_cdt::list_op::remove_by_value, rt, value}; }
+        inline json remove_by_rank(json rank, as_cdt::return_type rt = as_cdt::return_type::none) { return {as_cdt::list_op::remove_by_rank, rt, rank}; }
+        inline json remove_all_by_value(json value, as_cdt::return_type rt = as_cdt::return_type::none) { return {as_cdt::list_op::remove_all_by_value, rt, value}; }
+        inline json remove_all_by_value_list(json values, as_cdt::return_type rt = as_cdt::return_type::none) { return {as_cdt::list_op::remove_all_by_value_list, rt, values}; }
+        inline json remove_by_index_range(json index, json count, as_cdt::return_type rt = as_cdt::return_type::none) { return {as_cdt::list_op::remove_by_index_range, rt, index, count}; }
+        inline json remove_by_value_interval(json value_start, json value_end, as_cdt::return_type rt = as_cdt::return_type::none) { return {as_cdt::list_op::remove_by_value_interval, rt, value_start, value_end}; }
+        inline json remove_by_rank_range(json rank, json count, as_cdt::return_type rt = as_cdt::return_type::none) { return {as_cdt::list_op::remove_by_rank_range, rt, rank, count}; }
+        inline json remove_by_value_rel_rank_range(json value, json rank, json count, as_cdt::return_type rt = as_cdt::return_type::none) { return {as_cdt::list_op::remove_by_value_rel_rank_range, rt, value, rank, count}; }
 
         // Read operations
-        inline json get(json index) { return {(int)as_cdt::list_op::get, index}; }
-        inline json get_range(json index, json count) { return {(int)as_cdt::list_op::get_range, index, count}; }
+        inline json get(json index) { return {as_cdt::list_op::get, index}; }
+        inline json get_range(json index, json count) { return {as_cdt::list_op::get_range, index, count}; }
 
         // Get by index/value/rank operations
-        inline json get_by_index(json index, as_cdt::return_type rt = as_cdt::return_type::value) { return {(int)as_cdt::list_op::get_by_index, (int)rt, index}; }
-        inline json get_by_value(json value, as_cdt::return_type rt = as_cdt::return_type::value) { return {(int)as_cdt::list_op::get_by_value, (int)rt, value}; }
-        inline json get_by_rank(json rank, as_cdt::return_type rt = as_cdt::return_type::value) { return {(int)as_cdt::list_op::get_by_rank, (int)rt, rank}; }
-        inline json get_all_by_value(json value, as_cdt::return_type rt = as_cdt::return_type::value) { return {(int)as_cdt::list_op::get_all_by_value, (int)rt, value}; }
-        inline json get_all_by_value_list(json values, as_cdt::return_type rt = as_cdt::return_type::value) { return {(int)as_cdt::list_op::get_all_by_value_list, (int)rt, values}; }
-        inline json get_by_index_range(json index, json count, as_cdt::return_type rt = as_cdt::return_type::value) { return {(int)as_cdt::list_op::get_by_index_range, (int)rt, index, count}; }
-        inline json get_by_value_interval(json value_start, json value_end, as_cdt::return_type rt = as_cdt::return_type::value) { return {(int)as_cdt::list_op::get_by_value_interval, (int)rt, value_start, value_end}; }
-        inline json get_by_rank_range(json rank, json count, as_cdt::return_type rt = as_cdt::return_type::value) { return {(int)as_cdt::list_op::get_by_rank_range, (int)rt, rank, count}; }
-        inline json get_by_value_rel_rank_range(json value, json rank, json count, as_cdt::return_type rt = as_cdt::return_type::value) { return {(int)as_cdt::list_op::get_by_value_rel_rank_range, (int)rt, value, rank, count}; }
+        inline json get_by_index(json index, as_cdt::return_type rt = as_cdt::return_type::value) { return {as_cdt::list_op::get_by_index, rt, index}; }
+        inline json get_by_value(json value, as_cdt::return_type rt = as_cdt::return_type::value) { return {as_cdt::list_op::get_by_value, rt, value}; }
+        inline json get_by_rank(json rank, as_cdt::return_type rt = as_cdt::return_type::value) { return {as_cdt::list_op::get_by_rank, rt, rank}; }
+        inline json get_all_by_value(json value, as_cdt::return_type rt = as_cdt::return_type::value) { return {as_cdt::list_op::get_all_by_value, rt, value}; }
+        inline json get_all_by_value_list(json values, as_cdt::return_type rt = as_cdt::return_type::value) { return {as_cdt::list_op::get_all_by_value_list, rt, values}; }
+        inline json get_by_index_range(json index, json count, as_cdt::return_type rt = as_cdt::return_type::value) { return {as_cdt::list_op::get_by_index_range, rt, index, count}; }
+        inline json get_by_value_interval(json value_start, json value_end, as_cdt::return_type rt = as_cdt::return_type::value) { return {as_cdt::list_op::get_by_value_interval, rt, value_start, value_end}; }
+        inline json get_by_rank_range(json rank, json count, as_cdt::return_type rt = as_cdt::return_type::value) { return {as_cdt::list_op::get_by_rank_range, rt, rank, count}; }
+        inline json get_by_value_rel_rank_range(json value, json rank, json count, as_cdt::return_type rt = as_cdt::return_type::value) { return {as_cdt::list_op::get_by_value_rel_rank_range, rt, value, rank, count}; }
     }
 
     namespace map
     {
         // Simple operations
-        inline json size()  { return {(int)as_cdt::map_op::size}; }
-        inline json clear() { return {(int)as_cdt::map_op::clear}; }
+        inline json size()  { return {as_cdt::map_op::size}; }
+        inline json clear() { return {as_cdt::map_op::clear}; }
 
         // Modify operations
-        inline json set_type(int type_flags) { return {(int)as_cdt::map_op::set_type, type_flags}; }
-        inline json add(json key, json value) { return {(int)as_cdt::map_op::add, key, value}; }
-        inline json add_items(json map) { return {(int)as_cdt::map_op::add_items, map}; }
-        inline json put(json key, json value) { return {(int)as_cdt::map_op::put, key, value}; }
-        inline json put_items(json map) { return {(int)as_cdt::map_op::put_items, map}; }
-        inline json replace(json key, json value) { return {(int)as_cdt::map_op::replace, key, value}; }
-        inline json replace_items(json map) { return {(int)as_cdt::map_op::replace_items, map}; }
-        inline json increment(json key, json delta) { return {(int)as_cdt::map_op::increment, key, delta}; }
-        inline json decrement(json key, json delta) { return {(int)as_cdt::map_op::decrement, key, delta}; }
+        inline json set_type(as_cdt::map_order order) { return {as_cdt::map_op::set_type, order}; }
+        inline json add(json key, json value) { return {as_cdt::map_op::add, key, value}; }
+        inline json add_items(json map) { return {as_cdt::map_op::add_items, map}; }
+        inline json put(json key, json value) { return {as_cdt::map_op::put, key, value}; }
+        inline json put_items(json map) { return {as_cdt::map_op::put_items, map}; }
+        inline json replace(json key, json value) { return {as_cdt::map_op::replace, key, value}; }
+        inline json replace_items(json map) { return {as_cdt::map_op::replace_items, map}; }
+        inline json increment(json key, json delta) { return {as_cdt::map_op::increment, key, delta}; }
+        inline json decrement(json key, json delta) { return {as_cdt::map_op::decrement, key, delta}; }
 
         // Remove operations
-        inline json remove_by_key(json key, as_cdt::return_type rt = as_cdt::return_type::none) { return {(int)as_cdt::map_op::remove_by_key, (int)rt, key}; }
-        inline json remove_by_index(json index, as_cdt::return_type rt = as_cdt::return_type::none) { return {(int)as_cdt::map_op::remove_by_index, (int)rt, index}; }
-        inline json remove_by_value(json value, as_cdt::return_type rt = as_cdt::return_type::none) { return {(int)as_cdt::map_op::remove_by_value, (int)rt, value}; }
-        inline json remove_by_rank(json rank, as_cdt::return_type rt = as_cdt::return_type::none) { return {(int)as_cdt::map_op::remove_by_rank, (int)rt, rank}; }
-        inline json remove_by_key_list(json keys, as_cdt::return_type rt = as_cdt::return_type::none) { return {(int)as_cdt::map_op::remove_by_key_list, (int)rt, keys}; }
-        inline json remove_all_by_value(json value, as_cdt::return_type rt = as_cdt::return_type::none) { return {(int)as_cdt::map_op::remove_all_by_value, (int)rt, value}; }
-        inline json remove_by_value_list(json values, as_cdt::return_type rt = as_cdt::return_type::none) { return {(int)as_cdt::map_op::remove_by_value_list, (int)rt, values}; }
-        inline json remove_by_key_interval(json key_start, json key_end, as_cdt::return_type rt = as_cdt::return_type::none) { return {(int)as_cdt::map_op::remove_by_key_interval, (int)rt, key_start, key_end}; }
-        inline json remove_by_index_range(json index, json count, as_cdt::return_type rt = as_cdt::return_type::none) { return {(int)as_cdt::map_op::remove_by_index_range, (int)rt, index, count}; }
-        inline json remove_by_value_interval(json value_start, json value_end, as_cdt::return_type rt = as_cdt::return_type::none) { return {(int)as_cdt::map_op::remove_by_value_interval, (int)rt, value_start, value_end}; }
-        inline json remove_by_rank_range(json rank, json count, as_cdt::return_type rt = as_cdt::return_type::none) { return {(int)as_cdt::map_op::remove_by_rank_range, (int)rt, rank, count}; }
-        inline json remove_by_key_rel_index_range(json key, json index, json count, as_cdt::return_type rt = as_cdt::return_type::none) { return {(int)as_cdt::map_op::remove_by_key_rel_index_range, (int)rt, key, index, count}; }
-        inline json remove_by_value_rel_rank_range(json value, json rank, json count, as_cdt::return_type rt = as_cdt::return_type::none) { return {(int)as_cdt::map_op::remove_by_value_rel_rank_range, (int)rt, value, rank, count}; }
+        inline json remove_by_key(json key, as_cdt::return_type rt = as_cdt::return_type::none) { return {as_cdt::map_op::remove_by_key, rt, key}; }
+        inline json remove_by_index(json index, as_cdt::return_type rt = as_cdt::return_type::none) { return {as_cdt::map_op::remove_by_index, rt, index}; }
+        inline json remove_by_value(json value, as_cdt::return_type rt = as_cdt::return_type::none) { return {as_cdt::map_op::remove_by_value, rt, value}; }
+        inline json remove_by_rank(json rank, as_cdt::return_type rt = as_cdt::return_type::none) { return {as_cdt::map_op::remove_by_rank, rt, rank}; }
+        inline json remove_by_key_list(json keys, as_cdt::return_type rt = as_cdt::return_type::none) { return {as_cdt::map_op::remove_by_key_list, rt, keys}; }
+        inline json remove_all_by_value(json value, as_cdt::return_type rt = as_cdt::return_type::none) { return {as_cdt::map_op::remove_all_by_value, rt, value}; }
+        inline json remove_by_value_list(json values, as_cdt::return_type rt = as_cdt::return_type::none) { return {as_cdt::map_op::remove_by_value_list, rt, values}; }
+        inline json remove_by_key_interval(json key_start, json key_end, as_cdt::return_type rt = as_cdt::return_type::none) { return {as_cdt::map_op::remove_by_key_interval, rt, key_start, key_end}; }
+        inline json remove_by_index_range(json index, json count, as_cdt::return_type rt = as_cdt::return_type::none) { return {as_cdt::map_op::remove_by_index_range, rt, index, count}; }
+        inline json remove_by_value_interval(json value_start, json value_end, as_cdt::return_type rt = as_cdt::return_type::none) { return {as_cdt::map_op::remove_by_value_interval, rt, value_start, value_end}; }
+        inline json remove_by_rank_range(json rank, json count, as_cdt::return_type rt = as_cdt::return_type::none) { return {as_cdt::map_op::remove_by_rank_range, rt, rank, count}; }
+        inline json remove_by_key_rel_index_range(json key, json index, json count, as_cdt::return_type rt = as_cdt::return_type::none) { return {as_cdt::map_op::remove_by_key_rel_index_range, rt, key, index, count}; }
+        inline json remove_by_value_rel_rank_range(json value, json rank, json count, as_cdt::return_type rt = as_cdt::return_type::none) { return {as_cdt::map_op::remove_by_value_rel_rank_range, rt, value, rank, count}; }
 
         // Read operations
-        inline json get_by_key(json key, as_cdt::return_type rt = as_cdt::return_type::value) { return {(int)as_cdt::map_op::get_by_key, (int)rt, key}; }
-        inline json get_by_index(json index, as_cdt::return_type rt = as_cdt::return_type::value) { return {(int)as_cdt::map_op::get_by_index, (int)rt, index}; }
-        inline json get_by_value(json value, as_cdt::return_type rt = as_cdt::return_type::value) { return {(int)as_cdt::map_op::get_by_value, (int)rt, value}; }
-        inline json get_by_rank(json rank, as_cdt::return_type rt = as_cdt::return_type::value) { return {(int)as_cdt::map_op::get_by_rank, (int)rt, rank}; }
-        inline json get_all_by_value(json value, as_cdt::return_type rt = as_cdt::return_type::value) { return {(int)as_cdt::map_op::get_all_by_value, (int)rt, value}; }
-        inline json get_by_key_interval(json key_start, json key_end, as_cdt::return_type rt = as_cdt::return_type::value) { return {(int)as_cdt::map_op::get_by_key_interval, (int)rt, key_start, key_end}; }
-        inline json get_by_index_range(json index, json count, as_cdt::return_type rt = as_cdt::return_type::value) { return {(int)as_cdt::map_op::get_by_index_range, (int)rt, index, count}; }
-        inline json get_by_value_interval(json value_start, json value_end, as_cdt::return_type rt = as_cdt::return_type::value) { return {(int)as_cdt::map_op::get_by_value_interval, (int)rt, value_start, value_end}; }
-        inline json get_by_rank_range(json rank, json count, as_cdt::return_type rt = as_cdt::return_type::value) { return {(int)as_cdt::map_op::get_by_rank_range, (int)rt, rank, count}; }
-        inline json get_by_key_list(json keys, as_cdt::return_type rt = as_cdt::return_type::value) { return {(int)as_cdt::map_op::get_by_key_list, (int)rt, keys}; }
-        inline json get_by_value_list(json values, as_cdt::return_type rt = as_cdt::return_type::value) { return {(int)as_cdt::map_op::get_by_value_list, (int)rt, values}; }
-        inline json get_by_key_rel_index_range(json key, json index, json count, as_cdt::return_type rt = as_cdt::return_type::value) { return {(int)as_cdt::map_op::get_by_key_rel_index_range, (int)rt, key, index, count}; }
-        inline json get_by_value_rel_rank_range(json value, json rank, json count, as_cdt::return_type rt = as_cdt::return_type::value) { return {(int)as_cdt::map_op::get_by_value_rel_rank_range, (int)rt, value, rank, count}; }
+        inline json get_by_key(json key, as_cdt::return_type rt = as_cdt::return_type::value) { return {as_cdt::map_op::get_by_key, rt, key}; }
+        inline json get_by_index(json index, as_cdt::return_type rt = as_cdt::return_type::value) { return {as_cdt::map_op::get_by_index, rt, index}; }
+        inline json get_by_value(json value, as_cdt::return_type rt = as_cdt::return_type::value) { return {as_cdt::map_op::get_by_value, rt, value}; }
+        inline json get_by_rank(json rank, as_cdt::return_type rt = as_cdt::return_type::value) { return {as_cdt::map_op::get_by_rank, rt, rank}; }
+        inline json get_all_by_value(json value, as_cdt::return_type rt = as_cdt::return_type::value) { return {as_cdt::map_op::get_all_by_value, rt, value}; }
+        inline json get_by_key_interval(json key_start, json key_end, as_cdt::return_type rt = as_cdt::return_type::value) { return {as_cdt::map_op::get_by_key_interval, rt, key_start, key_end}; }
+        inline json get_by_index_range(json index, json count, as_cdt::return_type rt = as_cdt::return_type::value) { return {as_cdt::map_op::get_by_index_range, rt, index, count}; }
+        inline json get_by_value_interval(json value_start, json value_end, as_cdt::return_type rt = as_cdt::return_type::value) { return {as_cdt::map_op::get_by_value_interval, rt, value_start, value_end}; }
+        inline json get_by_rank_range(json rank, json count, as_cdt::return_type rt = as_cdt::return_type::value) { return {as_cdt::map_op::get_by_rank_range, rt, rank, count}; }
+        inline json get_by_key_list(json keys, as_cdt::return_type rt = as_cdt::return_type::value) { return {as_cdt::map_op::get_by_key_list, rt, keys}; }
+        inline json get_by_value_list(json values, as_cdt::return_type rt = as_cdt::return_type::value) { return {as_cdt::map_op::get_by_value_list, rt, values}; }
+        inline json get_by_key_rel_index_range(json key, json index, json count, as_cdt::return_type rt = as_cdt::return_type::value) { return {as_cdt::map_op::get_by_key_rel_index_range, rt, key, index, count}; }
+        inline json get_by_value_rel_rank_range(json value, json rank, json count, as_cdt::return_type rt = as_cdt::return_type::value) { return {as_cdt::map_op::get_by_value_rel_rank_range, rt, value, rank, count}; }
     }
 
     // Subcontext evaluation - opcode 255
@@ -640,12 +682,12 @@ namespace cdt
         const json& context_array,
         const json& operation
     ) {
-        return json::array({255, context_array, operation});
+        return {255, context_array, operation};
     }
 
     // CDT SELECT operation - opcode 254 (0xFE)
     // Selection modes
-    enum class select_mode : uint8_t
+    enum class select_mode : int
     {
         tree =         0,    // SELECT_TREE - Return entire matching subtrees
         leaf_list =    1,    // SELECT_LEAF_LIST - Extract values from leaf elements
@@ -654,7 +696,7 @@ namespace cdt
     };
 
     // Selection flags
-    enum class select_flag : uint8_t
+    enum class select_flag : int
     {
         none =    0,
         no_fail = 0x10  // SELECT_NO_FAIL - Treat AS_EXP_UNK as AS_EXP_FALSE
@@ -668,7 +710,7 @@ namespace cdt
         select_flag flags = select_flag::none
     ) {
         int64_t combined_flags = static_cast<int64_t>(mode) | static_cast<int64_t>(flags);
-        return json::array({254, context_array, combined_flags});
+        return {254, context_array, combined_flags};
     }
 
     // Build CDT select operation for apply mode with transformation expression
@@ -679,6 +721,6 @@ namespace cdt
         select_flag flags = select_flag::none
     ) {
         int64_t combined_flags = static_cast<int64_t>(select_mode::apply) | static_cast<int64_t>(flags);
-        return json::array({254, context_array, combined_flags, apply_exp});
+        return {254, context_array, combined_flags, apply_exp};
     }
 }
