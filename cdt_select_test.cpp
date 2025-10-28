@@ -139,7 +139,7 @@ template<typename T>
 void test_cdt_operation(int fd, const char* name, const string& bin_name,
                         as_op::type op_type, const json& cdt_op, int record_id, const T& expected)
 {
-    char buf[4096];
+  char *buf = (char*) malloc (1024*1024);
     as_msg *req = (as_msg *)(buf + 2048);
     as_msg *res = nullptr;
 
@@ -174,6 +174,7 @@ void test_cdt_operation(int fd, const char* name, const string& bin_name,
 
     cout << " | " << dur << " us" << endl;
     free(res);
+	free(buf);
 }
 
 // Test CDT success without validation (copy from cdt_test.cpp)
@@ -315,7 +316,7 @@ struct select_test_data {
 
 // Setup test data (write initial value to bin)
 void setup_select_test(int fd, const select_test_data& data) {
-    char buf[8192];
+  char*buf = (char*)malloc(1024*1024);
     as_msg *req = (as_msg *)(buf + 4096);
     as_msg *res = nullptr;
 
@@ -357,6 +358,7 @@ void setup_select_test(int fd, const select_test_data& data) {
 
     dieunless(res->result_code == 0);
     free(res);
+	free(buf);
 }
 
 // Test SELECT operation with validation
@@ -2336,37 +2338,308 @@ void test_edge_multi_level_contexts(int fd) {
     cout << "  TODO: Multi-level context tests require enhanced helper" << endl;
 }
 
-void test_edge_large_containers(int fd) {
-    cout << "\n--- PART 6.3: Large Container Edge Cases ---" << endl;
+void test_edge_buffer_sizes(int fd) {
+    cout << "\n--- PART 6.3: Buffer Edge Cases (Header Size Transitions) ---" << endl;
 
-    // Build large list (1000 elements)
-    json large_list = json::array();
-    for (int i = 0; i < 1000; i++) {
-        large_list.push_back(i);
-    }
-
-    select_test_data data(EDGE_CASE_REC, "large", large_list);
     reset_test_record(fd, EDGE_CASE_REC);
-    setup_select_test(fd, data);
 
-    // Select subset (50% match)
-    json expected = json::array();
-    for (int i = 500; i < 1000; i++) {
-        expected.push_back(i);
-    }
+    // Test 1: Single element list
+    select_test_data single(EDGE_CASE_REC, "single", json::array({42}));
+    setup_select_test(fd, single);
+    test_select_operation(fd, "Buffer: Single element", single,
+        expr_helpers::value_gt(0),
+        cdt::select_mode::tree,
+        json::array({42})
+    );
 
-    test_select_operation(fd, "Large list (1000 elements, 50% match)", data,
+    // Test 2: Two elements
+    reset_test_record(fd, EDGE_CASE_REC);
+    select_test_data two(EDGE_CASE_REC, "two", json::array({10, 20}));
+    setup_select_test(fd, two);
+    test_select_operation(fd, "Buffer: Two elements", two,
+        expr_helpers::value_gt(0),
+        cdt::select_mode::tree,
+        json::array({10, 20})
+    );
+
+    // Test 3: 254 elements (1-byte header limit for msgpack array)
+    cout << "  Building 254-element list..." << endl;
+    reset_test_record(fd, EDGE_CASE_REC);
+    json list_254 = json::array();
+    for (int i = 0; i < 254; i++) list_254.push_back(i);
+    select_test_data data_254(EDGE_CASE_REC, "h254", list_254);
+    setup_select_test(fd, data_254);
+
+    json expected_254 = json::array();
+    for (int i = 200; i < 254; i++) expected_254.push_back(i);
+    test_select_operation(fd, "Buffer: 254 elements (1-byte header max)", data_254,
+        expr_helpers::value_ge(200),
+        cdt::select_mode::tree,
+        expected_254
+    );
+
+    // Test 4: 255 elements (triggers 3-byte header: 0xdc NNNN)
+    cout << "  Building 255-element list..." << endl;
+    reset_test_record(fd, EDGE_CASE_REC);
+    json list_255 = json::array();
+    for (int i = 0; i < 255; i++) list_255.push_back(i);
+    select_test_data data_255(EDGE_CASE_REC, "h255", list_255);
+    setup_select_test(fd, data_255);
+
+    json expected_255 = json::array();
+    for (int i = 200; i < 255; i++) expected_255.push_back(i);
+    test_select_operation(fd, "Buffer: 255 elements (3-byte header trigger)", data_255,
+        expr_helpers::value_ge(200),
+        cdt::select_mode::tree,
+        expected_255
+    );
+
+    // Test 5: 1000 elements (well into 3-byte header territory)
+    cout << "  Building 1000-element list..." << endl;
+    reset_test_record(fd, EDGE_CASE_REC);
+    json list_1k = json::array();
+    for (int i = 0; i < 1000; i++) list_1k.push_back(i);
+    select_test_data data_1k(EDGE_CASE_REC, "h1k", list_1k);
+    setup_select_test(fd, data_1k);
+
+    json expected_1k = json::array();
+    for (int i = 500; i < 1000; i++) expected_1k.push_back(i);
+    test_select_operation(fd, "Buffer: 1000 elements (3-byte header)", data_1k,
         expr_helpers::value_ge(500),
         cdt::select_mode::tree,
-        expected
+        expected_1k
     );
 
-    // Select very few (0.5% match)
-    test_select_operation(fd, "Large list (1000 elements, 0.5% match)", data,
-        expr_helpers::value_ge(995),
+    // Test 6: 10,000 elements (stress test)
+    cout << "  Building 10,000-element list (this may take a moment)..." << endl;
+    reset_test_record(fd, EDGE_CASE_REC);
+    json list_10k = json::array();
+    for (int i = 0; i < 10000; i++) list_10k.push_back(i);
+    select_test_data data_10k(EDGE_CASE_REC, "h10k", list_10k);
+    setup_select_test(fd, data_10k);
+
+    json expected_10k = json::array();
+    for (int i = 9000; i < 10000; i++) expected_10k.push_back(i);
+    test_select_operation(fd, "Buffer: 10,000 elements (large 3-byte header)", data_10k,
+        expr_helpers::value_ge(9000),
         cdt::select_mode::tree,
-        json::array({995, 996, 997, 998, 999})
+        expected_10k
     );
+
+    // Test 7: Very large string elements (test data size, not count)
+    reset_test_record(fd, EDGE_CASE_REC);
+    string large_str(10000, 'x');  // 10KB string
+    select_test_data large_elem(EDGE_CASE_REC, "bigstr", json::array({large_str, "small", large_str}));
+    setup_select_test(fd, large_elem);
+    test_select_operation(fd, "Buffer: Large string elements (10KB each)", large_elem,
+        expr::eq(expr::var_builtin_str(as_cdt::builtin_var::value), large_str),
+        cdt::select_mode::tree,
+        json::array({large_str, large_str})
+    );
+
+    // Test 8: Sparse selection from large container (small result)
+    reset_test_record(fd, EDGE_CASE_REC);
+    setup_select_test(fd, data_10k);
+    test_select_operation(fd, "Buffer: Sparse selection from 10K elements (5 results)", data_10k,
+        expr_helpers::value_ge(9995),
+        cdt::select_mode::tree,
+        json::array({9995, 9996, 9997, 9998, 9999})
+    );
+
+    cout << "  All buffer edge case tests completed successfully" << endl;
+}
+
+// Helper to build deeply nested list structure
+json build_nested_list(int depth, int leaf_value) {
+    if (depth == 0) {
+        return leaf_value;
+    }
+    return json::array({build_nested_list(depth - 1, leaf_value)});
+}
+
+// Helper to build deeply nested map structure
+json build_nested_map(int depth, int leaf_value) {
+    if (depth == 0) {
+        return leaf_value;
+    }
+    return json::object({{"nested", build_nested_map(depth - 1, leaf_value)}});
+}
+
+// Helper to build mixed nested structure (alternating lists and maps)
+json build_mixed_nested(int depth, int leaf_value, bool start_with_list = true) {
+    if (depth == 0) {
+        return leaf_value;
+    }
+    if (start_with_list) {
+        return json::array({build_mixed_nested(depth - 1, leaf_value, false)});
+    } else {
+        return json::object({{"nested", build_mixed_nested(depth - 1, leaf_value, true)}});
+    }
+}
+
+void test_deep_nesting(int fd) {
+    cout << "\n--- PART 6.4: Deep Nesting Tests (Stack Safety) ---" << endl;
+
+    reset_test_record(fd, EDGE_CASE_REC);
+
+    // Test 1: 10-level nested list with SELECT
+    cout << "  Building 10-level nested structure..." << endl;
+    json nested_10 = json::array({
+        build_nested_list(10, 42),
+        build_nested_list(10, 99),
+        build_nested_list(10, 13)
+    });
+    select_test_data data_10(EDGE_CASE_REC, "deep10", nested_10);
+    setup_select_test(fd, data_10);
+
+    // Navigate to leaf level and filter
+    // Build context to navigate down 10 levels (list index 0 at each level)
+    json ctx_10 = json::array({});
+    for (int i = 0; i < 10; i++) {
+        ctx_10.push_back(as_cdt::ctx_type::list_index);
+        ctx_10.push_back(0);
+    }
+
+    // Test navigation and filtering at 10 levels
+    test_select_operation(fd, "Deep: 10-level nested list navigation", data_10,
+        expr_helpers::value_gt(20),
+        cdt::select_mode::tree,
+        json::array({
+            build_nested_list(10, 42),
+            build_nested_list(10, 99)
+        })
+    );
+
+    // Test 2: 32-level nested list
+    cout << "  Building 32-level nested structure..." << endl;
+    reset_test_record(fd, EDGE_CASE_REC);
+    json nested_32 = json::array({
+        build_nested_list(32, 100),
+        build_nested_list(32, 200)
+    });
+    select_test_data data_32(EDGE_CASE_REC, "deep32", nested_32);
+    setup_select_test(fd, data_32);
+
+    test_select_operation(fd, "Deep: 32-level nested list (mid-depth test)", data_32,
+        expr_helpers::value_gt(150),
+        cdt::select_mode::tree,
+        json::array({build_nested_list(32, 200)})
+    );
+
+    // Test 3: 64-level nested list (maximum allowed depth)
+    cout << "  Building 64-level nested structure (server maximum)..." << endl;
+    reset_test_record(fd, EDGE_CASE_REC);
+    json nested_64 = json::array({
+        build_nested_list(64, 500),
+        build_nested_list(64, 600),
+        build_nested_list(64, 700)
+    });
+    select_test_data data_64(EDGE_CASE_REC, "deep64", nested_64);
+    setup_select_test(fd, data_64);
+
+    test_select_operation(fd, "Deep: 64-level nested list (maximum depth)", data_64,
+        expr_helpers::value_ge(600),
+        cdt::select_mode::tree,
+        json::array({
+            build_nested_list(64, 600),
+            build_nested_list(64, 700)
+        })
+    );
+
+    // Test 4: 64-level nested map (maximum allowed depth)
+    cout << "  Building 64-level nested map structure..." << endl;
+    reset_test_record(fd, EDGE_CASE_REC);
+    json nested_map_64 = json::array({
+        build_nested_map(64, 123),
+        build_nested_map(64, 456)
+    });
+    select_test_data data_map_64(EDGE_CASE_REC, "deepmap64", nested_map_64);
+    setup_select_test(fd, data_map_64);
+
+    test_select_operation(fd, "Deep: 64-level nested map (maximum depth)", data_map_64,
+        expr_helpers::value_gt(200),
+        cdt::select_mode::tree,
+        json::array({build_nested_map(64, 456)})
+    );
+
+    // Test 5: Mixed nested structure (lists and maps alternating)
+    cout << "  Building 40-level mixed nested structure (lists + maps)..." << endl;
+    reset_test_record(fd, EDGE_CASE_REC);
+    json mixed_40 = json::array({
+        build_mixed_nested(40, 111, true),
+        build_mixed_nested(40, 222, true),
+        build_mixed_nested(40, 333, true)
+    });
+    select_test_data data_mixed_40(EDGE_CASE_REC, "mixed40", mixed_40);
+    setup_select_test(fd, data_mixed_40);
+
+    test_select_operation(fd, "Deep: 40-level mixed nested (lists + maps)", data_mixed_40,
+        expr_helpers::value_gt(200),
+        cdt::select_mode::tree,
+        json::array({
+            build_mixed_nested(40, 222, true),
+            build_mixed_nested(40, 333, true)
+        })
+    );
+
+    // Test 6: LEAF_LIST mode with deep nesting (should flatten)
+    cout << "  Testing LEAF_LIST flattening on 20-level nested structure..." << endl;
+    reset_test_record(fd, EDGE_CASE_REC);
+    json nested_20 = json::array({
+        build_nested_list(20, 1),
+        build_nested_list(20, 2),
+        build_nested_list(20, 3)
+    });
+    select_test_data data_20(EDGE_CASE_REC, "deep20", nested_20);
+    setup_select_test(fd, data_20);
+
+    test_select_operation(fd, "Deep: LEAF_LIST flattening on 20-level nesting", data_20,
+        expr_helpers::value_gt(1),
+        cdt::select_mode::leaf_list,
+        json::array({2, 3})  // Flattened leaf values
+    );
+
+    // Test 7: Wide structure at moderate depth (stress breadth, not just depth)
+    cout << "  Building wide structure with 15-level depth and 5 branches..." << endl;
+    reset_test_record(fd, EDGE_CASE_REC);
+    json wide_deep = json::array({});
+    for (int i = 0; i < 5; i++) {
+        wide_deep.push_back(build_nested_list(15, i * 100));
+    }
+    select_test_data data_wide(EDGE_CASE_REC, "wide15", wide_deep);
+    setup_select_test(fd, data_wide);
+
+    test_select_operation(fd, "Deep: Wide structure (5 branches, 15 levels each)", data_wide,
+        expr_helpers::value_ge(200),
+        cdt::select_mode::tree,
+        json::array({
+            build_nested_list(15, 200),
+            build_nested_list(15, 300),
+            build_nested_list(15, 400)
+        })
+    );
+
+    // Test 8: Performance test - APPLY on 30-level nested structure
+    cout << "  Testing APPLY performance on 30-level nesting..." << endl;
+    reset_test_record(fd, EDGE_CASE_REC);
+    json nested_30 = json::array({
+        build_nested_list(30, 10),
+        build_nested_list(30, 20),
+        build_nested_list(30, 30)
+    });
+    select_test_data data_30(EDGE_CASE_REC, "deep30", nested_30);
+    setup_select_test(fd, data_30);
+
+    test_select_apply_operation(fd, "Deep: APPLY transformation on 30-level nesting", data_30,
+        expr_helpers::value_gt(15),
+        expr::mul(expr::var_builtin_int(as_cdt::builtin_var::value), 2),
+        json::array({
+            build_nested_list(30, 40),  // 20*2
+            build_nested_list(30, 60)   // 30*2
+        })
+    );
+
+    cout << "  All deep nesting tests completed (no stack overflow detected)" << endl;
 }
 
 // ========================================================================
@@ -2543,7 +2816,8 @@ int main(int argc, char **argv, char **envp)
 
     test_edge_flag_validation(fd);
     test_edge_multi_level_contexts(fd);
-    test_edge_large_containers(fd);
+    test_edge_buffer_sizes(fd);
+    test_deep_nesting(fd);
 
     // PART 7: Bug Trigger Tests
     cout << "\n" << string(120, '=') << endl;
