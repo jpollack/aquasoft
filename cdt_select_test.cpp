@@ -2467,17 +2467,321 @@ void test_edge_flag_validation(int fd) {
     cout << "  TODO: Invalid flag tests require raw operation helper" << endl;
 }
 
+// Helper: Generate nested structure of arbitrary depth
+// Pattern: map->list->map->list->... (alternating)
+// Each level has 'elements_per_level' items
+// Final leaf values are integers starting from 'base_value'
+json generate_nested_structure(int depth, int elements_per_level, int base_value = 100) {
+    if (depth == 0) {
+        // Base case: return leaf value
+        return base_value;
+    }
+
+    if (depth % 2 == 1) {
+        // Odd depth: create map
+        json map_obj = json::object();
+        for (int i = 0; i < elements_per_level; i++) {
+            string key = "level" + to_string(depth) + "_item" + to_string(i);
+            map_obj[key] = generate_nested_structure(depth - 1, elements_per_level, base_value + i * 10);
+        }
+        return map_obj;
+    } else {
+        // Even depth: create list
+        json list_arr = json::array();
+        for (int i = 0; i < elements_per_level; i++) {
+            list_arr.push_back(generate_nested_structure(depth - 1, elements_per_level, base_value + i * 10));
+        }
+        return list_arr;
+    }
+}
+
+// Helper: Generate context path array for depth navigation
+// Navigates to first element at each level using index/key access
+// depth: number of navigation steps
+// Alternates between map_key and list_index based on structure pattern
+json generate_context_path(int depth, const json& filter_expr) {
+    json ctx = json::array();
+
+    // Navigate through each level (map->list->map->list->...)
+    for (int i = depth; i > 0; i--) {
+        if (i % 2 == 1) {
+            // Odd level is map - navigate by key
+            string key = "level" + to_string(i) + "_item0";
+            ctx.push_back(as_cdt::ctx_type::map_key);
+            ctx.push_back(key);
+        } else {
+            // Even level is list - navigate by index
+            ctx.push_back(as_cdt::ctx_type::list_index);
+            ctx.push_back(0);  // Navigate to first element
+        }
+    }
+
+    // Add expression filter at the end
+    ctx.push_back(as_cdt::ctx_type::exp);
+    ctx.push_back(filter_expr);
+
+    return ctx;
+}
+
+// Helper: Generate context path with rank-based navigation
+json generate_context_path_with_rank(int depth, const json& filter_expr) {
+    json ctx = json::array();
+
+    for (int i = depth; i > 0; i--) {
+        if (i % 2 == 1) {
+            // Map level - use map_rank instead of map_key
+            ctx.push_back(as_cdt::ctx_type::map_rank);
+            ctx.push_back(0);  // First rank
+        } else {
+            // List level - use list_rank instead of list_index
+            ctx.push_back(as_cdt::ctx_type::list_rank);
+            ctx.push_back(0);  // First rank
+        }
+    }
+
+    ctx.push_back(as_cdt::ctx_type::exp);
+    ctx.push_back(filter_expr);
+
+    return ctx;
+}
+
 void test_edge_multi_level_contexts(int fd) {
-    cout << "\n--- PART 6.2: Multi-Level Expression Contexts ---" << endl;
+    using namespace expr_helpers;
+    cout << "\n--- PART 6.2: Multi-Level Context Tests (Parameterized Depth) ---" << endl;
 
-    select_test_data data(EDGE_CASE_REC, "nums", json::array({5, 15, 25, 35, 45}));
-    setup_select_test(fd, data);
+    reset_test_record(fd, EDGE_CASE_REC);
 
-    // NOTE: Multi-level expression contexts require special handling
-    // The test_select_operation helper only supports single expression contexts
-    // TODO: Add support for multi-level contexts or test with raw operations
+    // ========== PART 8.1: SELECT_TREE Depth Probing (3 tests) ==========
 
-    cout << "  TODO: Multi-level context tests require enhanced helper" << endl;
+    // Test 1: Depth 2 (baseline) - map->list structure
+    {
+        json structure = generate_nested_structure(2, 3, 100);
+        select_test_data data(EDGE_CASE_REC, "depth2_tree", structure);
+        setup_select_test(fd, data);
+
+        // Context: navigate map->list, filter VALUE >= 100
+        auto ctx = generate_context_path(2, value_ge(100));
+
+        // Expected: list with matching leaf values [100, 110, 120]
+        test_select_operation_with_context(fd, "Multi-level: TREE depth 2", data,
+            ctx, cdt::select_mode::tree, json::array({100, 110, 120}));
+    }
+
+    // Test 2: Depth 10 (medium depth)
+    {
+        reset_test_record(fd, EDGE_CASE_REC);
+        json structure = generate_nested_structure(10, 2, 200);
+        select_test_data data(EDGE_CASE_REC, "depth10_tree", structure);
+        setup_select_test(fd, data);
+
+        auto ctx = generate_context_path(10, value_ge(200));
+
+        // Expected: values at depth 10 that match filter
+        test_select_operation_with_context(fd, "Multi-level: TREE depth 10", data,
+            ctx, cdt::select_mode::tree, json::array({200, 210}));
+    }
+
+    // Test 3: Depth 30+ (stress test - find the limit)
+    {
+        reset_test_record(fd, EDGE_CASE_REC);
+        json structure = generate_nested_structure(30, 2, 300);
+        select_test_data data(EDGE_CASE_REC, "depth30_tree", structure);
+        setup_select_test(fd, data);
+
+        auto ctx = generate_context_path(30, value_ge(300));
+
+        // This test may fail if server has depth limits - that's valuable information
+        test_select_operation_with_context(fd, "Multi-level: TREE depth 30 (stress)", data,
+            ctx, cdt::select_mode::tree, json::array({300, 310}));
+    }
+
+    // ========== PART 8.2: SELECT_LEAF_LIST Depth Probing (3 tests) ==========
+
+    // Test 4: Depth 3 with rank-based contexts
+    {
+        reset_test_record(fd, EDGE_CASE_REC);
+        json structure = generate_nested_structure(3, 3, 400);
+        select_test_data data(EDGE_CASE_REC, "depth3_leaf", structure);
+        setup_select_test(fd, data);
+
+        auto ctx = generate_context_path_with_rank(3, value_ge(400));
+
+        // LEAF_LIST mode extracts just the values (no structure)
+        test_select_operation_with_context(fd, "Multi-level: LEAF_LIST depth 3 (rank)", data,
+            ctx, cdt::select_mode::leaf_list, json::array({400, 410, 420}));
+    }
+
+    // Test 5: Depth 15 with mixed contexts
+    {
+        reset_test_record(fd, EDGE_CASE_REC);
+        json structure = generate_nested_structure(15, 2, 500);
+        select_test_data data(EDGE_CASE_REC, "depth15_leaf", structure);
+        setup_select_test(fd, data);
+
+        auto ctx = generate_context_path(15, value_lt(520));
+
+        test_select_operation_with_context(fd, "Multi-level: LEAF_LIST depth 15", data,
+            ctx, cdt::select_mode::leaf_list, json::array({500, 510}));
+    }
+
+    // Test 6: Depth 30+ stress test
+    {
+        reset_test_record(fd, EDGE_CASE_REC);
+        json structure = generate_nested_structure(30, 2, 600);
+        select_test_data data(EDGE_CASE_REC, "depth30_leaf", structure);
+        setup_select_test(fd, data);
+
+        auto ctx = generate_context_path(30, value_eq(600));
+
+        test_select_operation_with_context(fd, "Multi-level: LEAF_LIST depth 30 (stress)", data,
+            ctx, cdt::select_mode::leaf_list, json::array({600}));
+    }
+
+    // ========== PART 8.3: SELECT_LEAF_MAP_KEY Depth Probing (2 tests) ==========
+
+    // Test 7: Depth 5 with value-based navigation
+    {
+        reset_test_record(fd, EDGE_CASE_REC);
+        // For LEAF_MAP_KEY, final level must be a map
+        // Adjust: depth 5 (odd) ends in map, add map at leaf level
+        json structure = json::object();
+        structure["root"] = json::array({
+            json::object({{"inner_key1", 700}, {"inner_key2", 710}}),
+            json::object({{"inner_key1", 720}, {"inner_key2", 730}})
+        });
+
+        select_test_data data(EDGE_CASE_REC, "depth5_mapkey", structure);
+        setup_select_test(fd, data);
+
+        // Context: root map->key "root"->list->index 0->map filter by VALUE >= 700
+        json ctx = json::array({
+            as_cdt::ctx_type::map_key, "root",
+            as_cdt::ctx_type::list_index, 0,
+            as_cdt::ctx_type::exp, value_ge(700)
+        });
+
+        // LEAF_MAP_KEY extracts keys from matching map entries
+        test_select_operation_with_context(fd, "Multi-level: LEAF_MAP_KEY depth 5", data,
+            ctx, cdt::select_mode::leaf_map_key, json::array({"inner_key1", "inner_key2"}));
+    }
+
+    // Test 8: Depth 20+ to find limits
+    {
+        reset_test_record(fd, EDGE_CASE_REC);
+        // Build deep structure ending in map
+        json structure = generate_nested_structure(19, 2, 800);  // Depth 19 ends in map
+        // Wrap in one more list level for depth 20
+        structure = json::array({structure, generate_nested_structure(19, 2, 850)});
+
+        select_test_data data(EDGE_CASE_REC, "depth20_mapkey", structure);
+        setup_select_test(fd, data);
+
+        // Navigate 20 levels deep to reach final map
+        json ctx = json::array({
+            as_cdt::ctx_type::list_index, 0
+        });
+        for (int i = 19; i > 0; i--) {
+            if (i % 2 == 1) {
+                ctx.push_back(as_cdt::ctx_type::map_key);
+                ctx.push_back("level" + to_string(i) + "_item0");
+            } else {
+                ctx.push_back(as_cdt::ctx_type::list_index);
+                ctx.push_back(0);
+            }
+        }
+        ctx.push_back(as_cdt::ctx_type::exp);
+        ctx.push_back(value_ge(800));
+
+        test_select_operation_with_context(fd, "Multi-level: LEAF_MAP_KEY depth 20 (stress)", data,
+            ctx, cdt::select_mode::leaf_map_key, json::array({}));  // May fail or return empty
+    }
+
+    // ========== PART 8.4: SELECT_APPLY Depth Probing (2 tests) ==========
+
+    // Test 9: Depth 5 with transformation
+    {
+        reset_test_record(fd, EDGE_CASE_REC);
+        json structure = generate_nested_structure(5, 2, 900);
+        select_test_data data(EDGE_CASE_REC, "depth5_apply", structure);
+        setup_select_test(fd, data);
+
+        // Navigate 5 levels, apply transformation VALUE * 2 to values >= 900
+        auto filter_expr = value_ge(900);
+        auto ctx = generate_context_path(5, filter_expr);
+
+        auto apply_expr = expr::mul(expr::var_builtin_int(as_cdt::builtin_var::value), 2);  // VALUE * 2
+
+        // Use raw operation construction for SELECT_APPLY with context
+        auto op = cdt::select_apply(ctx, apply_expr);
+
+        // After APPLY: values 900, 910 become 1800, 1820
+        char buf[4096];
+        as_msg *req = (as_msg *)(buf + 2048);
+        as_msg *res = nullptr;
+
+        // Execute APPLY
+        visit(req, data.record_id, AS_MSG_FLAG_WRITE);
+        auto msgpack = json::to_msgpack(op);
+        dieunless(req->add(as_op::type::t_cdt_modify, data.bin_name, msgpack.size(), msgpack.data()));
+
+        uint32_t dur = 0;
+        call(fd, (void**)&res, req, &dur);
+
+        cout << left << setw(55) << "Multi-level: APPLY depth 5" << " | ";
+
+        if (!check_connection(res, "Multi-level: APPLY depth 5")) {
+            cout << "SERVER CONNECTION LOST" << endl;
+            exit(2);
+        }
+
+        if (res->result_code == 0) {
+            report_pass("Multi-level: APPLY depth 5");
+        } else {
+            report_fail("Multi-level: APPLY depth 5", "error code " + to_string(res->result_code));
+        }
+        cout << " | " << dur << "μs" << endl;
+    }
+
+    // Test 10: Depth 20+ with complex expression
+    {
+        reset_test_record(fd, EDGE_CASE_REC);
+        json structure = generate_nested_structure(20, 2, 1000);
+        select_test_data data(EDGE_CASE_REC, "depth20_apply", structure);
+        setup_select_test(fd, data);
+
+        auto filter_expr = value_ge(1000);
+        auto ctx = generate_context_path(20, filter_expr);
+
+        auto apply_expr = expr::add(expr::var_builtin_int(as_cdt::builtin_var::value), 100);  // VALUE + 100
+        auto op = cdt::select_apply(ctx, apply_expr);
+
+        char buf[4096];
+        as_msg *req = (as_msg *)(buf + 2048);
+        as_msg *res = nullptr;
+
+        visit(req, data.record_id, AS_MSG_FLAG_WRITE);
+        auto msgpack = json::to_msgpack(op);
+        dieunless(req->add(as_op::type::t_cdt_modify, data.bin_name, msgpack.size(), msgpack.data()));
+
+        uint32_t dur = 0;
+        call(fd, (void**)&res, req, &dur);
+
+        cout << left << setw(55) << "Multi-level: APPLY depth 20 (stress)" << " | ";
+
+        if (!check_connection(res, "Multi-level: APPLY depth 20 (stress)")) {
+            cout << "SERVER CONNECTION LOST" << endl;
+            exit(2);
+        }
+
+        if (res->result_code == 0) {
+            report_pass("Multi-level: APPLY depth 20 (stress)");
+        } else {
+            report_fail("Multi-level: APPLY depth 20 (stress)", "error code " + to_string(res->result_code));
+        }
+        cout << " | " << dur << "μs" << endl;
+    }
+
+    cout << "\nMulti-level context tests complete - depth capabilities explored" << endl;
 }
 
 void test_edge_buffer_sizes(int fd) {
@@ -3052,6 +3356,202 @@ void test_quick_select_algorithm(int fd) {
     cout << "\n  All quick-select algorithm tests complete" << endl;
 }
 
+void test_empty_containers(int fd) {
+    cout << "\n--- PART 6.7: Empty Container Tests (All Modes) ---" << endl;
+
+    reset_test_record(fd, EDGE_CASE_REC);
+
+    // Test 1: Empty list with SELECT_TREE mode
+    select_test_data empty_list(EDGE_CASE_REC, "empty_list", json::array({}));
+    setup_select_test(fd, empty_list);
+    test_select_operation(fd, "Empty list - SELECT_TREE mode", empty_list,
+        expr_helpers::value_gt(0),
+        cdt::select_mode::tree,
+        json::array({})
+    );
+
+    // Test 2: Empty list with SELECT_LEAF_LIST mode
+    test_select_operation(fd, "Empty list - SELECT_LEAF_LIST mode", empty_list,
+        expr_helpers::value_gt(0),
+        cdt::select_mode::leaf_list,
+        json::array({})
+    );
+
+    // Test 3: Empty list with SELECT_APPLY mode
+    test_select_apply_operation(fd, "Empty list - SELECT_APPLY mode", empty_list,
+        expr_helpers::value_gt(0),
+        expr::mul(expr::var_builtin_int(as_cdt::builtin_var::value), 2),
+        json::array({})
+    );
+
+    // Test 4: Empty map with SELECT_TREE mode
+    reset_test_record(fd, EDGE_CASE_REC);
+    select_test_data empty_map(EDGE_CASE_REC, "empty_map", json::object({}));
+    setup_select_test(fd, empty_map);
+    test_select_operation(fd, "Empty map - SELECT_TREE mode", empty_map,
+        expr_helpers::value_gt(0),
+        cdt::select_mode::tree,
+        json::object({})
+    );
+
+    // Test 5: Empty map with SELECT_LEAF_MAP_KEY mode
+    test_select_operation(fd, "Empty map - SELECT_LEAF_MAP_KEY mode", empty_map,
+        expr::gt(expr::var_builtin_str(as_cdt::builtin_var::key), string("a")),
+        cdt::select_mode::leaf_map_key,
+        json::array({})
+    );
+
+    // Test 6: Empty map with SELECT_LEAF_MAP_KEY_VALUE mode
+    test_select_operation(fd, "Empty map - SELECT_LEAF_MAP_KEY_VALUE mode", empty_map,
+        expr::gt(expr::var_builtin_str(as_cdt::builtin_var::key), string("a")),
+        cdt::select_mode::leaf_map_key_value,
+        json::array({})
+    );
+
+    // Test 7: Mixed empty/non-empty - list with non-empty filter that yields empty result
+    reset_test_record(fd, EDGE_CASE_REC);
+    select_test_data populated(EDGE_CASE_REC, "populated", json::array({1, 2, 3}));
+    setup_select_test(fd, populated);
+    test_select_operation(fd, "Non-empty list filtered to empty result", populated,
+        expr_helpers::value_gt(100),  // No elements > 100
+        cdt::select_mode::tree,
+        json::array({})
+    );
+
+    cout << "  All empty container tests complete" << endl;
+}
+
+void test_additional_edge_expressions(int fd) {
+    cout << "\n--- PART 6.8: Additional Edge Expression Tests ---" << endl;
+
+    reset_test_record(fd, EDGE_CASE_REC);
+
+    // Test 1: Boundary condition - INT_MAX comparison
+    json large_nums = json::array({2147483646, 2147483647});  // INT_MAX is 2147483647
+    select_test_data int_max_data(EDGE_CASE_REC, "int_max", large_nums);
+    setup_select_test(fd, int_max_data);
+    test_select_operation(fd, "Boundary: VALUE == INT_MAX", int_max_data,
+        expr::eq(expr::var_builtin_int(as_cdt::builtin_var::value), 2147483647),
+        cdt::select_mode::tree,
+        json::array({2147483647})
+    );
+
+    // Test 2: Boundary condition - INT_MIN comparison
+    reset_test_record(fd, EDGE_CASE_REC);
+    json small_nums = json::array({-2147483648, -2147483647});  // INT_MIN is -2147483648
+    select_test_data int_min_data(EDGE_CASE_REC, "int_min", small_nums);
+    setup_select_test(fd, int_min_data);
+    test_select_operation(fd, "Boundary: VALUE == INT_MIN", int_min_data,
+        expr::eq(expr::var_builtin_int(as_cdt::builtin_var::value), -2147483648),
+        cdt::select_mode::tree,
+        json::array({-2147483648})
+    );
+
+    // Test 3: Expression evaluation order - complex nested logic
+    reset_test_record(fd, EDGE_CASE_REC);
+    select_test_data order_data(EDGE_CASE_REC, "order", json::array({5, 10, 15, 20, 25}));
+    setup_select_test(fd, order_data);
+    // (VALUE > 10 AND VALUE < 20) OR (VALUE == 5)
+    test_select_operation(fd, "Evaluation order: (V>10 AND V<20) OR V==5", order_data,
+        expr::or_(
+            expr::and_(expr_helpers::value_gt(10), expr_helpers::value_lt(20)),
+            expr::eq(expr::var_builtin_int(as_cdt::builtin_var::value), 5)
+        ),
+        cdt::select_mode::tree,
+        json::array({5, 15})
+    );
+
+    // Test 4: Evaluation order - AND has higher precedence
+    // VALUE > 5 AND VALUE < 15 OR VALUE == 25 should be: (V>5 AND V<15) OR V==25
+    test_select_operation(fd, "Evaluation order: V>5 AND V<15 OR V==25", order_data,
+        expr::or_(
+            expr::and_(expr_helpers::value_gt(5), expr_helpers::value_lt(15)),
+            expr::eq(expr::var_builtin_int(as_cdt::builtin_var::value), 25)
+        ),
+        cdt::select_mode::tree,
+        json::array({10, 25})
+    );
+
+    // Test 5: Boundary - Zero comparison edge cases
+    reset_test_record(fd, EDGE_CASE_REC);
+    select_test_data zero_data(EDGE_CASE_REC, "zeros", json::array({-1, 0, 1}));
+    setup_select_test(fd, zero_data);
+    test_select_operation(fd, "Boundary: VALUE >= 0 AND VALUE <= 0 (exactly zero)", zero_data,
+        expr::and_(
+            expr::ge(expr::var_builtin_int(as_cdt::builtin_var::value), 0),
+            expr::le(expr::var_builtin_int(as_cdt::builtin_var::value), 0)
+        ),
+        cdt::select_mode::tree,
+        json::array({0})
+    );
+
+    cout << "  All additional edge expression tests complete" << endl;
+}
+
+void test_flag_combinations(int fd) {
+    cout << "\n--- PART 6.9: Flag Combination Tests ---" << endl;
+
+    reset_test_record(fd, EDGE_CASE_REC);
+    select_test_data data(EDGE_CASE_REC, "flags", json::array({10, 20, 30}));
+    setup_select_test(fd, data);
+
+    // Test 1: NO_FAIL flag with expression that would produce UNK
+    // Create a list with mixed types to test NO_FAIL behavior
+    reset_test_record(fd, EDGE_CASE_REC);
+    json mixed = json::array({10, "str", 30});
+    select_test_data mixed_data(EDGE_CASE_REC, "mixed", mixed);
+    setup_select_test(fd, mixed_data);
+
+    // This expression will produce UNK for the string element
+    // With NO_FAIL flag, UNK is treated as false
+    test_select_operation(fd, "Flag: NO_FAIL with type mismatch", mixed_data,
+        expr::gt(expr::var_builtin_int(as_cdt::builtin_var::value), 15),
+        cdt::select_mode::tree,
+        json::array({30}),  // Only 30 matches, string is treated as false (not error)
+        cdt::select_flag::no_fail
+    );
+
+    // Test 2: Test SELECT_TREE mode default behavior (no special flags)
+    reset_test_record(fd, EDGE_CASE_REC);
+    select_test_data simple(EDGE_CASE_REC, "simple", json::array({5, 15, 25}));
+    setup_select_test(fd, simple);
+    test_select_operation(fd, "Flag: None (default behavior)", simple,
+        expr_helpers::value_gt(10),
+        cdt::select_mode::tree,
+        json::array({15, 25})
+    );
+
+    // Test 3: Verify LEAF_LIST mode works correctly
+    test_select_operation(fd, "Flag: LEAF_LIST mode verification", simple,
+        expr_helpers::value_gt(10),
+        cdt::select_mode::leaf_list,
+        json::array({15, 25})
+    );
+
+    // Test 4: Verify LEAF_MAP_KEY mode requires map data
+    reset_test_record(fd, EDGE_CASE_REC);
+    json map_data = json::object({{"a", 10}, {"b", 20}, {"c", 30}});
+    select_test_data map_test(EDGE_CASE_REC, "map", map_data);
+    setup_select_test(fd, map_test);
+    test_select_operation(fd, "Flag: LEAF_MAP_KEY mode with map", map_test,
+        expr::gt(expr::var_builtin_int(as_cdt::builtin_var::value), 15),
+        cdt::select_mode::leaf_map_key,
+        json::array({"b", "c"})
+    );
+
+    // Test 5: Verify APPLY mode modifies data
+    reset_test_record(fd, EDGE_CASE_REC);
+    select_test_data apply_data(EDGE_CASE_REC, "apply", json::array({10, 20, 30}));
+    setup_select_test(fd, apply_data);
+    test_select_apply_operation(fd, "Flag: APPLY mode verification", apply_data,
+        expr_helpers::value_gt(15),
+        expr::mul(expr::var_builtin_int(as_cdt::builtin_var::value), 2),
+        json::array({10, 40, 60})  // Only 20 and 30 are doubled
+    );
+
+    cout << "  All flag combination tests complete" << endl;
+}
+
 // ========================================================================
 // PART 7: BUG TRIGGER TESTS
 // ========================================================================
@@ -3399,6 +3899,9 @@ int main(int argc, char **argv, char **envp)
     test_deep_nesting(fd);
     test_persistent_indexes(fd);
     test_quick_select_algorithm(fd);
+    test_empty_containers(fd);
+    test_additional_edge_expressions(fd);
+    test_flag_combinations(fd);
 
     // PART 7: Bug Trigger Tests
     cout << "\n" << string(120, '=') << endl;
