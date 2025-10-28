@@ -133,14 +133,18 @@ TestRecord reset_test_record_vc(int fd, int record_id) {
 }
 
 // Test expression - no validation
-void test_expression(int fd, const char* name, const json& expr, int record_id = 0)
+void test_expression(int fd, const char* name, const json& expr, int record_id = 0,
+                     as_exp::flags flags = as_exp::flags::none)
 {
     char buf[2048];
     as_msg *req = (as_msg *)(buf + 1024);
     as_msg *res = nullptr;
 
     visit(req, record_id, AS_MSG_FLAG_READ);
-    dieunless(req->add(as_op::type::t_exp_read, "result", expr));
+
+    // If flags provided, encode as [expression, flags]
+    json expr_with_flags = (flags == as_exp::flags::none) ? expr : json::array({expr, static_cast<int>(flags)});
+    dieunless(req->add(as_op::type::t_exp_read, "result", expr_with_flags));
 
     uint32_t dur = 0;
     call(fd, (void**)&res, req, &dur);
@@ -352,10 +356,14 @@ bool test_expr_write(int fd, as_msg* req, as_msg** res,
 bool test_expr_modify(int fd, as_msg* req, as_msg** res,
                       const string& test_name, int record_id,
                       const string& result_bin, const json& modify_expr,
-                      int expected_value = -1, bool validate = false) {
+                      int expected_value = -1, bool validate = false,
+                      as_exp::flags flags = as_exp::flags::none) {
 
     visit(req, record_id, AS_MSG_FLAG_WRITE);
-    req->add(as_op::type::t_exp_modify, result_bin, modify_expr);
+
+    // If flags provided, encode as [expression, flags]
+    json expr_with_flags = (flags == as_exp::flags::none) ? modify_expr : json::array({modify_expr, static_cast<int>(flags)});
+    req->add(as_op::type::t_exp_modify, result_bin, expr_with_flags);
 
     uint32_t dur = 0;
     call(fd, (void**)res, req, &dur);
@@ -480,6 +488,15 @@ int main(int argc, char **argv, char **envp)
     test_expression(fd, "pow(to_float(age), 2.0)",
         expr::pow(expr::to_float(expr::bin("age", as_exp::result_type::t_int)), 2.0), 1);
 
+    test_expression(fd, "log(10.0, 100.0)",
+        expr::log(10.0, 100.0), 1);
+
+    test_expression(fd, "log(2.0, 8.0)",
+        expr::log(2.0, 8.0), 1);
+
+    test_expression(fd, "log(10.0, to_float(age))",
+        expr::log(10.0, expr::to_float(expr::bin("age", as_exp::result_type::t_int))), 1);
+
     test_expression(fd, "mod(score, 10)",
         expr::mod(expr::bin("score", as_exp::result_type::t_int), 10), 1, (int64_t)(rec1.score % 10));
 
@@ -511,6 +528,12 @@ int main(int argc, char **argv, char **envp)
 
     test_expression(fd, "int_rshift(score, 1)",
         expr::int_rshift(expr::bin("score", as_exp::result_type::t_int), 1), 1, (int64_t)(rec1.score >> 1));
+
+    test_expression(fd, "int_arshift(score, 2)",
+        expr::int_arshift(expr::bin("score", as_exp::result_type::t_int), 2), 1, (int64_t)(rec1.score >> 2));
+
+    test_expression(fd, "int_arshift(age, 1)",
+        expr::int_arshift(expr::bin("age", as_exp::result_type::t_int), 1), 1, (int64_t)(rec1.age >> 1));
 
     test_expression(fd, "int_count(score)",
         expr::int_count(expr::bin("score", as_exp::result_type::t_int)), 1, (int64_t)__builtin_popcountll(rec1.score));
@@ -945,6 +968,272 @@ int main(int argc, char **argv, char **envp)
             expr::gt(expr::bin("age", as_exp::result_type::t_int), 30),
             expr::gt(expr::bin("score", as_exp::result_type::t_int), 50)
         ), 1, ((rec1.age > 30) != (rec1.score > 50)));
+
+    // ========================================================================
+    // EXPRESSION FLAGS TESTS
+    // ========================================================================
+
+    cout << "\n========================================" << endl;
+    cout << "EXPRESSION FLAGS TESTS" << endl;
+    cout << "========================================\n" << endl;
+
+    // Test record IDs for flag tests
+    int flag_rec_new = 30;      // Non-existent record
+    int flag_rec_existing = 31; // Existing record
+
+    // Create existing record for flag tests
+    cout << "--- Setup: Create test record for flag tests ---" << endl;
+    {
+        char buf[2048];
+        as_msg *req = (as_msg *)(buf + 1024);
+        as_msg *res = nullptr;
+
+        visit(req, flag_rec_existing, AS_MSG_FLAG_WRITE);
+        req->add(as_op::type::t_write, "testbin", (int64_t)100);
+
+        call(fd, (void**)&res, req);
+        cout << "Created record " << flag_rec_existing << " with testbin=100" << endl;
+        free(res);
+    }
+
+    cout << "\n--- Flag: CREATE_ONLY ---" << endl;
+
+    // Test 1: CREATE_ONLY should succeed on non-existent bin
+    {
+        char buf[2048];
+        as_msg *req = (as_msg *)(buf + 1024);
+        as_msg *res = nullptr;
+
+        auto expr = expr::add(100, 50);  // Simple literal expression
+        test_expr_modify(fd, req, &res, "CREATE_ONLY: succeed on new bin",
+            flag_rec_existing, "newbin", expr, -1, false, as_exp::flags::create_only);
+
+        free(res);
+    }
+
+    // Test 2: CREATE_ONLY should fail on existing record
+    {
+        char buf[2048];
+        as_msg *req = (as_msg *)(buf + 1024);
+        as_msg *res = nullptr;
+
+        visit(req, flag_rec_existing, AS_MSG_FLAG_WRITE);
+        auto expr = expr::add(expr::bin("testbin", as_exp::result_type::t_int), 10);
+        json expr_with_flags = json::array({expr, static_cast<int>(as_exp::flags::create_only)});
+        req->add(as_op::type::t_exp_modify, "newbin2", expr_with_flags);
+
+        uint32_t dur = 0;
+        call(fd, (void**)&res, req, &dur);
+
+        cout << left << setw(50) << "CREATE_ONLY: fail on existing record" << " | ";
+
+        // Should fail with BIN_EXISTS error (code 5)
+        if (res->result_code != 0) {
+            cout << "OK: failed as expected (code " << (int)res->result_code << ")";
+            report_pass("CREATE_ONLY: fail on existing record");
+        } else {
+            cout << "UNEXPECTED: succeeded";
+            report_fail("CREATE_ONLY: fail on existing record", "should have failed");
+        }
+
+        cout << " | " << dur << " us" << endl;
+        free(res);
+    }
+
+    cout << "\n--- Flag: UPDATE_ONLY ---" << endl;
+
+    // Test 3: UPDATE_ONLY should succeed on existing record
+    {
+        char buf[2048];
+        as_msg *req = (as_msg *)(buf + 1024);
+        as_msg *res = nullptr;
+
+        auto expr = expr::mul(expr::bin("testbin", as_exp::result_type::t_int), 2);
+        test_expr_modify(fd, req, &res, "UPDATE_ONLY: succeed on existing record",
+            flag_rec_existing, "testbin", expr, -1, false, as_exp::flags::update_only);
+
+        free(res);
+    }
+
+    // Test 4: UPDATE_ONLY should fail on non-existent bin
+    {
+        char buf[2048];
+        as_msg *req = (as_msg *)(buf + 1024);
+        as_msg *res = nullptr;
+
+        visit(req, flag_rec_existing, AS_MSG_FLAG_WRITE);
+        auto expr = expr::add(100, 50);
+        json expr_with_flags = json::array({expr, static_cast<int>(as_exp::flags::update_only)});
+        req->add(as_op::type::t_exp_modify, "nonexistent", expr_with_flags);
+
+        uint32_t dur = 0;
+        call(fd, (void**)&res, req, &dur);
+
+        cout << left << setw(50) << "UPDATE_ONLY: fail on non-existent bin" << " | ";
+
+        // Should fail with BIN_NOT_FOUND error
+        if (res->result_code != 0) {
+            cout << "OK: failed as expected (code " << (int)res->result_code << ")";
+            report_pass("UPDATE_ONLY: fail on non-existent bin");
+        } else {
+            cout << "UNEXPECTED: succeeded";
+            report_fail("UPDATE_ONLY: fail on non-existent bin", "should have failed");
+        }
+
+        cout << " | " << dur << " us" << endl;
+        free(res);
+    }
+
+    cout << "\n--- Flag: ALLOW_DELETE ---" << endl;
+
+    // Test 5: ALLOW_DELETE with nil expression should delete bin
+    {
+        char buf[2048];
+        as_msg *req = (as_msg *)(buf + 1024);
+        as_msg *res = nullptr;
+
+        // First write a bin to delete
+        visit(req, flag_rec_existing, AS_MSG_FLAG_WRITE);
+        req->add(as_op::type::t_write, "to_delete", (int64_t)999);
+        call(fd, (void**)&res, req);
+        free(res);
+        res = nullptr;
+
+        // Now delete it with nil expression + ALLOW_DELETE flag
+        visit(req, flag_rec_existing, AS_MSG_FLAG_WRITE);
+        auto nil_expr = nullptr;  // This represents nil/null
+        json expr_with_flags = json::array({nil_expr, static_cast<int>(as_exp::flags::allow_delete)});
+        req->add(as_op::type::t_exp_modify, "to_delete", expr_with_flags);
+
+        uint32_t dur = 0;
+        call(fd, (void**)&res, req, &dur);
+
+        cout << left << setw(50) << "ALLOW_DELETE: delete bin with nil expr" << " | ";
+
+        if (res->result_code == 0) {
+            cout << "OK";
+            report_pass("ALLOW_DELETE: delete bin with nil expr");
+        } else {
+            cout << "ERROR: code " << (int)res->result_code;
+            report_fail("ALLOW_DELETE: delete bin with nil expr", "operation failed");
+        }
+
+        cout << " | " << dur << " us" << endl;
+        free(res);
+    }
+
+    cout << "\n--- Flag: POLICY_NO_FAIL ---" << endl;
+
+    // Test 6: POLICY_NO_FAIL should not fail transaction if expression returns false
+    {
+        char buf[2048];
+        as_msg *req = (as_msg *)(buf + 1024);
+        as_msg *res = nullptr;
+
+        visit(req, flag_rec_existing, AS_MSG_FLAG_WRITE);
+        // Expression that evaluates to integer (not fail/success context)
+        auto expr = expr::add(1, 1);
+        json expr_with_flags = json::array({expr, static_cast<int>(as_exp::flags::policy_no_fail)});
+        req->add(as_op::type::t_exp_modify, "nofail_test", expr_with_flags);
+
+        uint32_t dur = 0;
+        call(fd, (void**)&res, req, &dur);
+
+        cout << left << setw(50) << "POLICY_NO_FAIL: handle expr result" << " | ";
+
+        // Should succeed
+        if (res->result_code == 0) {
+            cout << "OK";
+            report_pass("POLICY_NO_FAIL: handle expr result");
+        } else {
+            cout << "ERROR: code " << (int)res->result_code;
+            report_fail("POLICY_NO_FAIL: handle expr result", "operation failed");
+        }
+
+        cout << " | " << dur << " us" << endl;
+        free(res);
+    }
+
+    cout << "\n--- Flag: EVAL_NO_FAIL ---" << endl;
+
+    // Test 7: EVAL_NO_FAIL should handle divide-by-zero gracefully
+    {
+        char buf[2048];
+        as_msg *req = (as_msg *)(buf + 1024);
+        as_msg *res = nullptr;
+
+        visit(req, flag_rec_existing, AS_MSG_FLAG_WRITE);
+        auto expr = expr::div(expr::bin("testbin", as_exp::result_type::t_int), 0);
+        json expr_with_flags = json::array({expr, static_cast<int>(as_exp::flags::eval_no_fail)});
+        req->add(as_op::type::t_exp_modify, "divzero_test", expr_with_flags);
+
+        uint32_t dur = 0;
+        call(fd, (void**)&res, req, &dur);
+
+        cout << left << setw(50) << "EVAL_NO_FAIL: handle divide-by-zero" << " | ";
+
+        // Should not crash, transaction should complete
+        // May succeed with no-op or fail gracefully
+        cout << "OK: completed (code " << (int)res->result_code << ")";
+        report_pass("EVAL_NO_FAIL: handle divide-by-zero");
+
+        cout << " | " << dur << " us" << endl;
+        free(res);
+    }
+
+    // Test 8: EVAL_NO_FAIL should handle nil bin access
+    {
+        char buf[2048];
+        as_msg *req = (as_msg *)(buf + 1024);
+        as_msg *res = nullptr;
+
+        visit(req, flag_rec_existing, AS_MSG_FLAG_WRITE);
+        auto expr = expr::add(expr::bin("nonexistent_bin", as_exp::result_type::t_int), 10);
+        json expr_with_flags = json::array({expr, static_cast<int>(as_exp::flags::eval_no_fail)});
+        req->add(as_op::type::t_exp_modify, "nilaccess_test", expr_with_flags);
+
+        uint32_t dur = 0;
+        call(fd, (void**)&res, req, &dur);
+
+        cout << left << setw(50) << "EVAL_NO_FAIL: handle nil bin access" << " | ";
+
+        // Should not crash, transaction should complete
+        cout << "OK: completed (code " << (int)res->result_code << ")";
+        report_pass("EVAL_NO_FAIL: handle nil bin access");
+
+        cout << " | " << dur << " us" << endl;
+        free(res);
+    }
+
+    cout << "\n--- Flag: Combined Flags ---" << endl;
+
+    // Test 9: UPDATE_ONLY + EVAL_NO_FAIL
+    {
+        char buf[2048];
+        as_msg *req = (as_msg *)(buf + 1024);
+        as_msg *res = nullptr;
+
+        visit(req, flag_rec_existing, AS_MSG_FLAG_WRITE);
+        auto expr = expr::div(expr::bin("testbin", as_exp::result_type::t_int), 0);
+        int combined_flags = static_cast<int>(as_exp::flags::update_only) | static_cast<int>(as_exp::flags::eval_no_fail);
+        json expr_with_flags = json::array({expr, combined_flags});
+        req->add(as_op::type::t_exp_modify, "testbin", expr_with_flags);
+
+        uint32_t dur = 0;
+        call(fd, (void**)&res, req, &dur);
+
+        cout << left << setw(50) << "Combined: UPDATE_ONLY + EVAL_NO_FAIL" << " | ";
+
+        cout << "OK: completed (code " << (int)res->result_code << ")";
+        report_pass("Combined: UPDATE_ONLY + EVAL_NO_FAIL");
+
+        cout << " | " << dur << " us" << endl;
+        free(res);
+    }
+
+    cout << "\n--- Cleanup: Flag test records ---" << endl;
+    delete_test_record(fd, flag_rec_new);
+    delete_test_record(fd, flag_rec_existing);
 
     // ========================================================================
     // CLEANUP

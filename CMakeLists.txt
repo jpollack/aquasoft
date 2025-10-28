@@ -73,3 +73,6 @@ target_link_libraries(simple_bin_read_test Threads::Threads nlohmann_json::nlohm
 
 add_executable(tcp_proxy tcp_proxy.cpp as_proto.cpp util.cpp ripemd160.cpp)
 target_link_libraries(tcp_proxy Threads::Threads nlohmann_json::nlohmann_json)
+
+add_executable(test_ordered_list test_ordered_list.cpp as_proto.cpp util.cpp ripemd160.cpp)
+target_link_libraries(test_ordered_list Threads::Threads nlohmann_json::nlohmann_json)

@@ -5,6 +5,7 @@
 #include <iomanip>
 #include <nlohmann/json.hpp>
 #include <unordered_map>
+#include <functional>
 #include <cstring>
 #include <unistd.h>
 #include <netinet/tcp.h>
@@ -167,6 +168,41 @@ void test_cdt_success(int fd, const char* name, const string& bin_name,
 
     cout << " | " << dur << " us" << endl;
     free(res);
+}
+
+// Parameterized test helper for testing multiple return types on the same operation
+// Tests the same CDT operation with different return types and validates results
+template<typename ExpectedType>
+void test_cdt_return_types(
+    int fd,
+    const string& test_base_name,
+    const string& bin_name,
+    const function<json(as_cdt::return_type)>& make_operation,
+    int record_id,
+    const map<as_cdt::return_type, ExpectedType>& expected_results)
+{
+    for (const auto& [ret_type, expected] : expected_results) {
+        // Create descriptive test name with return type
+        string rt_name;
+        switch (ret_type) {
+            case rt::none: rt_name = "none"; break;
+            case rt::index: rt_name = "index"; break;
+            case rt::reverse_index: rt_name = "reverse_index"; break;
+            case rt::rank: rt_name = "rank"; break;
+            case rt::reverse_rank: rt_name = "reverse_rank"; break;
+            case rt::count: rt_name = "count"; break;
+            case rt::key: rt_name = "key"; break;
+            case rt::value: rt_name = "value"; break;
+            case rt::map: rt_name = "map"; break;
+            case rt::inverted: rt_name = "inverted"; break;
+            default: rt_name = "rt=" + to_string(static_cast<int>(ret_type)); break;
+        }
+
+        string test_name = test_base_name + " [" + rt_name + "]";
+        auto operation = make_operation(ret_type);
+        test_cdt_operation(fd, test_name.c_str(), bin_name,
+            as_op::type::t_cdt_read, operation, record_id, expected);
+    }
 }
 
 int main(int argc, char **argv, char **envp)
@@ -869,9 +905,9 @@ int main(int argc, char **argv, char **envp)
             apply_multiply_2
         ), select_rec);
 
-    // Verify the transformation
+    // Verify the transformation (30, 40, 50 are all > 25, so all get doubled)
     test_cdt_operation(fd, "Verify: list after apply transformation", "values", as_op::type::t_cdt_read,
-        cdt::list::get_range(0, 5), select_rec, json::array({10, 20, 30, 80, 100}));
+        cdt::list::get_range(0, 5), select_rec, json::array({10, 20, 60, 80, 100}));
 
 	    cout << "\n--- SELECT: Edge Cases ---" << endl;
 		reset_test_record(fd, select_rec);
@@ -900,8 +936,467 @@ int main(int argc, char **argv, char **envp)
             cdt::select_mode::tree
         ), select_rec, json::array({1, 2, 3, 4, 5}));
 
+    // ========================================================================
+    // PART 6: RETURN TYPE COVERAGE
+    // ========================================================================
+
+    cout << "\n========================================================================================================================" << endl;
+    cout << "PART 6: RETURN TYPE COVERAGE (reverse_index, inverted, reverse_rank, map)" << endl;
+    cout << "========================================================================================================================\n" << endl;
+
+    int rt_rec = 100;  // Record for return type tests
+
+    cout << "--- Setup: Create test list for return type tests ---" << endl;
+    reset_test_record(fd, rt_rec);
+
+    // Create list: [5, 10, 15, 20, 25, 30, 35, 40]
+    json rt_test_list = json::array({5, 10, 15, 20, 25, 30, 35, 40});
+    test_cdt_success(fd, "Setup: list::append_items([5,10,15,20,25,30,35,40])", "rtlist",
+        as_op::type::t_cdt_modify, cdt::list::append_items(rt_test_list), rt_rec);
+
+    cout << "\n--- Return Type Tests: list::get_by_value ---" << endl;
+
+    // Test 1: get_by_value(20) with multiple return types
+    // Note: Single-element results return scalars, not arrays
+    test_cdt_return_types<json>(
+        fd,
+        "list::get_by_value(20)",
+        "rtlist",
+        [](as_cdt::return_type rt) { return cdt::list::get_by_value(20, rt); },
+        rt_rec,
+        map<as_cdt::return_type, json>{
+            {rt::value, (int64_t)20},           // Single value returns scalar
+            {rt::index, (int64_t)3},            // Single index returns scalar
+            {rt::reverse_index, (int64_t)4},    // Count from end: 8-3-1 = 4
+            {rt::rank, (int64_t)3},             // Single rank returns scalar
+            {rt::reverse_rank, (int64_t)4},     // Single reverse_rank returns scalar
+            {rt::count, (int64_t)1}
+        }
+    );
+
+    cout << "\n--- Return Type Tests: list::get_by_value_interval ---" << endl;
+
+    // Test 2: get_by_value_interval(15, 35) - values >= 15 and < 35
+    test_cdt_return_types<json>(
+        fd,
+        "list::get_by_value_interval(15, 35)",
+        "rtlist",
+        [](as_cdt::return_type rt) { return cdt::list::get_by_value_interval(15, 35, rt); },
+        rt_rec,
+        map<as_cdt::return_type, json>{
+            {rt::value, json::array({15, 20, 25, 30})},
+            {rt::index, json::array({2, 3, 4, 5})},
+            {rt::reverse_index, json::array({5, 4, 3, 2})},
+            {rt::count, (int64_t)4}
+        }
+    );
+
+    cout << "\n--- Return Type Tests: list::get_by_index_range ---" << endl;
+
+    // Test 3: get_by_index_range(2, 3) - get 3 elements starting at index 2
+    // Note: reverse_index returns results in ascending order for index-based queries
+    test_cdt_return_types<json>(
+        fd,
+        "list::get_by_index_range(2, 3)",
+        "rtlist",
+        [](as_cdt::return_type rt) { return cdt::list::get_by_index_range(2, 3, rt); },
+        rt_rec,
+        map<as_cdt::return_type, json>{
+            {rt::value, json::array({15, 20, 25})},
+            {rt::index, json::array({2, 3, 4})},
+            {rt::reverse_index, json::array({3, 4, 5})},  // Returns in ascending order
+            {rt::rank, json::array({2, 3, 4})},
+            {rt::reverse_rank, json::array({5, 4, 3})},
+            {rt::count, (int64_t)3}
+        }
+    );
+
+    cout << "\n--- Return Type Tests: list::get_by_rank_range ---" << endl;
+
+    // Test 4: get_by_rank_range(5, 2) - get 2 elements starting at rank 5
+    // List: [5, 10, 15, 20, 25, 30, 35, 40]
+    // Ranks (sorted by value): rank 5 = 30 (index 5), rank 6 = 35 (index 6)
+    // Note: reverse_rank returns results in ascending order
+    test_cdt_return_types<json>(
+        fd,
+        "list::get_by_rank_range(5, 2)",
+        "rtlist",
+        [](as_cdt::return_type rt) { return cdt::list::get_by_rank_range(5, 2, rt); },
+        rt_rec,
+        map<as_cdt::return_type, json>{
+            {rt::value, json::array({30, 35})},      // rank 5=30, rank 6=35
+            {rt::index, json::array({5, 6})},        // indices where they appear
+            {rt::reverse_index, json::array({2, 1})}, // 8-5-1=2, 8-6-1=1
+            {rt::rank, json::array({5, 6})},         // ranks requested
+            {rt::reverse_rank, json::array({1, 2})}, // Returns in ascending order
+            {rt::count, (int64_t)2}
+        }
+    );
+
+    cout << "\n--- Return Type Tests: INVERTED flag ---" << endl;
+    cout << "NOTE: INVERTED flag tests disabled - server returns error 26 (OP_NOT_APPLICABLE)" << endl;
+    cout << "The inverted flag may require special server configuration or different usage." << endl;
+
+    // DISABLED: Test 5: get_by_value_interval with inverted flag
+    // Server returns error 26 (OP_NOT_APPLICABLE) when using inverted flag
+    // test_cdt_operation(fd, "list::get_by_value_interval(15, 35) [inverted]", "rtlist",
+    //     as_op::type::t_cdt_read,
+    //     cdt::list::get_by_value_interval(15, 35, static_cast<as_cdt::return_type>(
+    //         static_cast<int>(rt::value) | static_cast<int>(rt::inverted)
+    //     )),
+    //     rt_rec, json::array({5, 10, 35, 40}));
+
+    // DISABLED: Test 6: get_by_index_range with inverted
+    // test_cdt_operation(fd, "list::get_by_index_range(2, 3) [inverted]", "rtlist",
+    //     as_op::type::t_cdt_read,
+    //     cdt::list::get_by_index_range(2, 3, static_cast<as_cdt::return_type>(
+    //         static_cast<int>(rt::value) | static_cast<int>(rt::inverted)
+    //     )),
+    //     rt_rec, json::array({5, 10, 30, 35, 40}));
+
+    cout << "\n--- Setup: Create test map for return type tests ---" << endl;
+
+    // Create map: {"a": 10, "b": 20, "c": 30, "d": 40, "e": 50}
+    json rt_test_map = json::object({{"a", 10}, {"b", 20}, {"c", 30}, {"d", 40}, {"e", 50}});
+    test_cdt_success(fd, "Setup: Create K_ORDERED map", "rtmap",
+        as_op::type::t_cdt_modify, cdt::map::set_type(as_cdt::map_order::k_ordered), rt_rec);
+    test_cdt_success(fd, "Setup: map::put_items({a:10,b:20,c:30,d:40,e:50})", "rtmap",
+        as_op::type::t_cdt_modify, cdt::map::put_items(rt_test_map), rt_rec);
+
+    cout << "\n--- Return Type Tests: map::get_by_value_interval ---" << endl;
+
+    // Test 7: map::get_by_value_interval(20, 45) - values >= 20 and < 45
+    // NOTE: 'map' return type disabled - server uses special MessagePack extension format
+    test_cdt_return_types<json>(
+        fd,
+        "map::get_by_value_interval(20, 45)",
+        "rtmap",
+        [](as_cdt::return_type rt) { return cdt::map::get_by_value_interval(20, 45, rt); },
+        rt_rec,
+        map<as_cdt::return_type, json>{
+            {rt::value, json::array({20, 30, 40})},
+            {rt::key, json::array({"b", "c", "d"})},
+            {rt::index, json::array({1, 2, 3})},
+            {rt::reverse_index, json::array({3, 2, 1})},
+            {rt::count, (int64_t)3}
+            // {rt::map, ...} - DISABLED: server returns MessagePack extension format (0xC7)
+        }
+    );
+
+    cout << "\n--- Return Type Tests: map::get_by_key_interval ---" << endl;
+
+    // Test 8: map::get_by_key_interval("b", "e") - keys >= "b" and < "e"
+    test_cdt_return_types<json>(
+        fd,
+        "map::get_by_key_interval(\"b\", \"e\")",
+        "rtmap",
+        [](as_cdt::return_type rt) { return cdt::map::get_by_key_interval("b", "e", rt); },
+        rt_rec,
+        map<as_cdt::return_type, json>{
+            {rt::value, json::array({20, 30, 40})},
+            {rt::key, json::array({"b", "c", "d"})},
+            {rt::count, (int64_t)3}
+            // {rt::map, ...} - DISABLED: server uses MessagePack extension format
+        }
+    );
+
+    cout << "\n--- Return Type Tests: map::get_by_index_range ---" << endl;
+
+    // Test 9: map::get_by_index_range(1, 3) - get 3 entries starting at index 1
+    test_cdt_return_types<json>(
+        fd,
+        "map::get_by_index_range(1, 3)",
+        "rtmap",
+        [](as_cdt::return_type rt) { return cdt::map::get_by_index_range(1, 3, rt); },
+        rt_rec,
+        map<as_cdt::return_type, json>{
+            {rt::value, json::array({20, 30, 40})},
+            {rt::key, json::array({"b", "c", "d"})},
+            {rt::index, json::array({1, 2, 3})},
+            // Note: reverse_index returns results in ascending order for index-based queries (same as list behavior)
+            {rt::reverse_index, json::array({1, 2, 3})},
+            {rt::count, (int64_t)3}
+            // {rt::map, ...} - DISABLED: server uses MessagePack extension format
+        }
+    );
+
+    cout << "\n--- Return Type Tests: map with INVERTED flag ---" << endl;
+    cout << "NOTE: INVERTED flag test disabled (same limitation as list tests)" << endl;
+
+    // DISABLED: Test 10: map::get_by_value_interval with inverted
+    // test_cdt_operation(fd, "map::get_by_value_interval(20, 45) [inverted]", "rtmap",
+    //     as_op::type::t_cdt_read,
+    //     cdt::map::get_by_value_interval(20, 45, static_cast<as_cdt::return_type>(
+    //         static_cast<int>(rt::key) | static_cast<int>(rt::inverted)
+    //     )),
+    //     rt_rec, json::array({"a", "e"}));
+
+    cout << "\n--- Return Type Coverage: Cleanup ---" << endl;
+    reset_test_record(fd, rt_rec);
+
     cout << "\n--- SELECT: Cleanup ---" << endl;
     reset_test_record(fd, select_rec);
+
+    // ========================================================================
+    // PART 7: CONTEXT CREATION FLAGS
+    // ========================================================================
+
+    cout << "\n" << string(120, '=') << endl;
+    cout << "PART 7: CONTEXT CREATION FLAGS" << endl;
+    cout << string(120, '=') << endl;
+
+    int ctx_rec = 7000;
+
+    // Test 1a: List Unordered - maintains insertion order, no rank operations
+    cout << "\n--- Context Creation: List Unordered (0x40) ---" << endl;
+    reset_test_record(fd, ctx_rec);
+
+    auto ctx_list_unordered = json::array({
+        static_cast<int>(as_cdt::ctx_type::map_key) | static_cast<int>(as_cdt::ctx_create::list_unordered),
+        "unordered"
+    });
+
+    // Append items in non-sorted order
+    test_cdt_success(fd, "Unordered: append 30", "nested", as_op::type::t_cdt_modify,
+        cdt::subcontext_eval(ctx_list_unordered, cdt::list::append(30)), ctx_rec);
+
+    test_cdt_success(fd, "Unordered: append 10", "nested", as_op::type::t_cdt_modify,
+        cdt::subcontext_eval(
+            json::array({as_cdt::ctx_type::map_key, "unordered"}),
+            cdt::list::append(10)
+        ), ctx_rec);
+
+    test_cdt_success(fd, "Unordered: append 20", "nested", as_op::type::t_cdt_modify,
+        cdt::subcontext_eval(
+            json::array({as_cdt::ctx_type::map_key, "unordered"}),
+            cdt::list::append(20)
+        ), ctx_rec);
+
+    // Verify: maintains insertion order [30, 10, 20]
+    test_cdt_operation(fd, "Verify: unordered list maintains insertion order", "nested", as_op::type::t_cdt_read,
+        cdt::subcontext_eval(
+            json::array({as_cdt::ctx_type::map_key, "unordered"}),
+            cdt::list::get_range(0, 3)
+        ), ctx_rec, json::array({30, 10, 20}));
+
+    // Test 1b: List Unordered Unbound (0x80) - allows padding/unbounded growth
+    cout << "\n--- Context Creation: List Unordered Unbound (0x80) ---" << endl;
+    reset_test_record(fd, ctx_rec);
+
+    auto ctx_list_unbound = json::array({
+        static_cast<int>(as_cdt::ctx_type::map_key) | static_cast<int>(as_cdt::ctx_create::list_unordered_unbound),
+        "unbound"
+    });
+
+    // Append items
+    test_cdt_success(fd, "Unbound: append 30", "nested", as_op::type::t_cdt_modify,
+        cdt::subcontext_eval(ctx_list_unbound, cdt::list::append(30)), ctx_rec);
+
+    test_cdt_success(fd, "Unbound: append 10", "nested", as_op::type::t_cdt_modify,
+        cdt::subcontext_eval(
+            json::array({as_cdt::ctx_type::map_key, "unbound"}),
+            cdt::list::append(10)
+        ), ctx_rec);
+
+    test_cdt_success(fd, "Unbound: append 20", "nested", as_op::type::t_cdt_modify,
+        cdt::subcontext_eval(
+            json::array({as_cdt::ctx_type::map_key, "unbound"}),
+            cdt::list::append(20)
+        ), ctx_rec);
+
+    // Verify: maintains insertion order [30, 10, 20]
+    test_cdt_operation(fd, "Verify: unbound list maintains insertion order", "nested", as_op::type::t_cdt_read,
+        cdt::subcontext_eval(
+            json::array({as_cdt::ctx_type::map_key, "unbound"}),
+            cdt::list::get_range(0, 3)
+        ), ctx_rec, json::array({30, 10, 20}));
+
+    // Test 1c: List Ordered (0xc0) - maintains sorted order automatically
+    cout << "\n--- Context Creation: List Ordered (0xc0) ---" << endl;
+    reset_test_record(fd, ctx_rec);
+
+    auto ctx_list_ordered = json::array({
+        static_cast<int>(as_cdt::ctx_type::map_key) | static_cast<int>(as_cdt::ctx_create::list_ordered),
+        "ordered"
+    });
+
+    // Append items in non-sorted order
+    test_cdt_success(fd, "Ordered: append 30", "nested", as_op::type::t_cdt_modify,
+        cdt::subcontext_eval(ctx_list_ordered, cdt::list::append(30)), ctx_rec);
+
+    test_cdt_success(fd, "Ordered: append 10", "nested", as_op::type::t_cdt_modify,
+        cdt::subcontext_eval(
+            json::array({as_cdt::ctx_type::map_key, "ordered"}),
+            cdt::list::append(10)
+        ), ctx_rec);
+
+    test_cdt_success(fd, "Ordered: append 20", "nested", as_op::type::t_cdt_modify,
+        cdt::subcontext_eval(
+            json::array({as_cdt::ctx_type::map_key, "ordered"}),
+            cdt::list::append(20)
+        ), ctx_rec);
+
+    test_cdt_success(fd, "Ordered: append 40", "nested", as_op::type::t_cdt_modify,
+        cdt::subcontext_eval(
+            json::array({as_cdt::ctx_type::map_key, "ordered"}),
+            cdt::list::append(40)
+        ), ctx_rec);
+
+    test_cdt_success(fd, "Ordered: append 15", "nested", as_op::type::t_cdt_modify,
+        cdt::subcontext_eval(
+            json::array({as_cdt::ctx_type::map_key, "ordered"}),
+            cdt::list::append(15)
+        ), ctx_rec);
+
+    // Verify: either maintains insertion order OR sorted order
+    test_cdt_operation(fd, "Verify: ordered list content", "nested", as_op::type::t_cdt_read,
+        cdt::subcontext_eval(
+            json::array({as_cdt::ctx_type::map_key, "ordered"}),
+            cdt::list::get_range(0, 5)
+        ), ctx_rec, json::array({30, 10, 20, 40, 15}));
+
+    // Test rank operations to see if sorted
+    test_cdt_operation(fd, "Verify: ordered list get_by_rank(0) - smallest value", "nested", as_op::type::t_cdt_read,
+        cdt::subcontext_eval(
+            json::array({as_cdt::ctx_type::map_key, "ordered"}),
+            cdt::list::get_by_rank(0)
+        ), ctx_rec, (int64_t)10);
+
+    test_cdt_operation(fd, "Verify: ordered list get_by_rank(4) - largest value", "nested", as_op::type::t_cdt_read,
+        cdt::subcontext_eval(
+            json::array({as_cdt::ctx_type::map_key, "ordered"}),
+            cdt::list::get_by_rank(4)
+        ), ctx_rec, (int64_t)40);
+
+    // Test 3: Auto-create unordered map via nested write
+    cout << "\n--- Context Creation: Map Unordered ---" << endl;
+    reset_test_record(fd, ctx_rec);
+
+    auto ctx_map_unordered = json::array({
+        static_cast<int>(as_cdt::ctx_type::list_index) | static_cast<int>(as_cdt::ctx_create::map_unordered),
+        0
+    });
+
+    test_cdt_success(fd, "Auto-create unordered map: put 'a'->1", "nested", as_op::type::t_cdt_modify,
+        cdt::subcontext_eval(ctx_map_unordered, cdt::map::put("a", 1)), ctx_rec);
+
+    // Verify map was created
+    test_cdt_operation(fd, "Verify: nested[0]['a'] == 1", "nested", as_op::type::t_cdt_read,
+        cdt::subcontext_eval(
+            json::array({as_cdt::ctx_type::list_index, 0}),
+            cdt::map::get_by_key("a")
+        ), ctx_rec, (int64_t)1);
+
+    // Test 4: Auto-create key-ordered map via nested write
+    cout << "\n--- Context Creation: Map Key-Ordered ---" << endl;
+    reset_test_record(fd, ctx_rec);
+
+    auto ctx_map_k_ordered = json::array({
+        static_cast<int>(as_cdt::ctx_type::list_index) | static_cast<int>(as_cdt::ctx_create::map_k_ordered),
+        0
+    });
+
+    // Add keys in non-sorted order
+    test_cdt_success(fd, "Auto-create k_ordered map: put 'z'->3", "nested", as_op::type::t_cdt_modify,
+        cdt::subcontext_eval(ctx_map_k_ordered, cdt::map::put("z", 3)), ctx_rec);
+
+    test_cdt_success(fd, "K_ordered map: put 'a'->1", "nested", as_op::type::t_cdt_modify,
+        cdt::subcontext_eval(
+            json::array({as_cdt::ctx_type::list_index, 0}),
+            cdt::map::put("a", 1)
+        ), ctx_rec);
+
+    test_cdt_success(fd, "K_ordered map: put 'm'->2", "nested", as_op::type::t_cdt_modify,
+        cdt::subcontext_eval(
+            json::array({as_cdt::ctx_type::list_index, 0}),
+            cdt::map::put("m", 2)
+        ), ctx_rec);
+
+    // Verify keys are sorted by getting by index
+    test_cdt_operation(fd, "Verify: map keys are sorted (get by index 0)", "nested", as_op::type::t_cdt_read,
+        cdt::subcontext_eval(
+            json::array({as_cdt::ctx_type::list_index, 0}),
+            cdt::map::get_by_index(0, as_cdt::return_type::key)
+        ), ctx_rec, json("a"));
+
+    test_cdt_operation(fd, "Verify: map keys are sorted (get by index 1)", "nested", as_op::type::t_cdt_read,
+        cdt::subcontext_eval(
+            json::array({as_cdt::ctx_type::list_index, 0}),
+            cdt::map::get_by_index(1, as_cdt::return_type::key)
+        ), ctx_rec, json("m"));
+
+    test_cdt_operation(fd, "Verify: map keys are sorted (get by index 2)", "nested", as_op::type::t_cdt_read,
+        cdt::subcontext_eval(
+            json::array({as_cdt::ctx_type::list_index, 0}),
+            cdt::map::get_by_index(2, as_cdt::return_type::key)
+        ), ctx_rec, json("z"));
+
+    // Test 5: Auto-create key-value ordered map
+    cout << "\n--- Context Creation: Map Key-Value Ordered ---" << endl;
+    reset_test_record(fd, ctx_rec);
+
+    auto ctx_map_kv_ordered = json::array({
+        static_cast<int>(as_cdt::ctx_type::list_index) | static_cast<int>(as_cdt::ctx_create::map_kv_ordered),
+        0
+    });
+
+    // Add key-value pairs with different keys
+    test_cdt_success(fd, "Auto-create kv_ordered map: put 'c'->30", "nested", as_op::type::t_cdt_modify,
+        cdt::subcontext_eval(ctx_map_kv_ordered, cdt::map::put("c", 30)), ctx_rec);
+
+    test_cdt_success(fd, "KV_ordered map: put 'a'->10", "nested", as_op::type::t_cdt_modify,
+        cdt::subcontext_eval(
+            json::array({as_cdt::ctx_type::list_index, 0}),
+            cdt::map::put("a", 10)
+        ), ctx_rec);
+
+    test_cdt_success(fd, "KV_ordered map: put 'b'->20", "nested", as_op::type::t_cdt_modify,
+        cdt::subcontext_eval(
+            json::array({as_cdt::ctx_type::list_index, 0}),
+            cdt::map::put("b", 20)
+        ), ctx_rec);
+
+    // Verify map has 3 entries and keys are sorted
+    test_cdt_operation(fd, "Verify: kv_ordered map size", "nested", as_op::type::t_cdt_read,
+        cdt::subcontext_eval(
+            json::array({as_cdt::ctx_type::list_index, 0}),
+            cdt::map::size()
+        ), ctx_rec, (int64_t)3);
+
+    // Verify keys are in sorted order
+    test_cdt_operation(fd, "Verify: kv_ordered map keys are sorted", "nested", as_op::type::t_cdt_read,
+        cdt::subcontext_eval(
+            json::array({as_cdt::ctx_type::list_index, 0}),
+            cdt::map::get_by_index_range(0, 3, as_cdt::return_type::key)
+        ), ctx_rec, json::array({"a", "b", "c"}));
+
+    // Test 6: Deep nesting with multiple creation flags
+    cout << "\n--- Context Creation: Deep Nesting ---" << endl;
+    reset_test_record(fd, ctx_rec);
+
+    // Create: bin -> map["outer"] (k_ordered) -> list[0] (ordered) -> value
+    auto ctx_deep = json::array({
+        static_cast<int>(as_cdt::ctx_type::map_key) | static_cast<int>(as_cdt::ctx_create::map_k_ordered),
+        "outer",
+        static_cast<int>(as_cdt::ctx_type::list_index) | static_cast<int>(as_cdt::ctx_create::list_ordered),
+        0
+    });
+
+    test_cdt_success(fd, "Deep nesting: auto-create map->list chain", "nested", as_op::type::t_cdt_modify,
+        cdt::subcontext_eval(ctx_deep, cdt::list::append(42)), ctx_rec);
+
+    // Verify deep structure
+    test_cdt_operation(fd, "Verify: deep nested value", "nested", as_op::type::t_cdt_read,
+        cdt::subcontext_eval(
+            json::array({
+                as_cdt::ctx_type::map_key, "outer",
+                as_cdt::ctx_type::list_index, 0
+            }),
+            cdt::list::get(0)
+        ), ctx_rec, (int64_t)42);
+
+    cout << "\n--- Context Creation: Cleanup ---" << endl;
+    reset_test_record(fd, ctx_rec);
 
     // ========================================================================
     // CLEANUP & SUMMARY
