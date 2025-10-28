@@ -777,7 +777,7 @@ int main(int argc, char **argv, char **envp)
 
     test_cdt_operation(fd, "select: elements > 10 (tree mode)", "numbers", as_op::type::t_cdt_read,
         cdt::select(
-            json::array({as_cdt::ctx_special::exp, expr_gt_10}),  // Context: AS_CDT_CTX_EXP=4, expression as JSON
+            json::array({as_cdt::ctx_type::exp, expr_gt_10}),  // Context: AS_CDT_CTX_EXP=4, expression as JSON
             cdt::select_mode::tree
         ), select_rec, json::array({15, 20, 25}));
 
@@ -786,7 +786,7 @@ int main(int argc, char **argv, char **envp)
 
     test_cdt_operation(fd, "select: elements < 10 (tree mode)", "numbers", as_op::type::t_cdt_read,
         cdt::select(
-            json::array({as_cdt::ctx_special::exp, expr_lt_10}),
+            json::array({as_cdt::ctx_type::exp, expr_lt_10}),
             cdt::select_mode::tree
         ), select_rec, json::array({5, 8, 3}));
 
@@ -795,7 +795,7 @@ int main(int argc, char **argv, char **envp)
 
     test_cdt_operation(fd, "select: elements > 100 (no matches)", "numbers", as_op::type::t_cdt_read,
         cdt::select(
-            json::array({as_cdt::ctx_special::exp, expr_gt_100}),
+            json::array({as_cdt::ctx_type::exp, expr_gt_100}),
             cdt::select_mode::tree
         ), select_rec, json::array());
 
@@ -812,14 +812,14 @@ int main(int argc, char **argv, char **envp)
 
     test_cdt_operation(fd, "select: map values > 15 (tree mode)", "scores", as_op::type::t_cdt_read,
         cdt::select(
-            json::array({as_cdt::ctx_special::exp, expr_value_gt_15}),
+            json::array({as_cdt::ctx_type::exp, expr_value_gt_15}),
             cdt::select_mode::tree
         ), select_rec, json::object({{"b", 20}, {"d", 30}}));
 
     // Test 5: Select map keys where value > 15 (leaf_map_key mode returns just keys)
     test_cdt_operation(fd, "select: map keys where value > 15 (leaf_map_key mode)", "scores", as_op::type::t_cdt_read,
         cdt::select(
-            json::array({as_cdt::ctx_special::exp, expr_value_gt_15}),
+            json::array({as_cdt::ctx_type::exp, expr_value_gt_15}),
             cdt::select_mode::leaf_map_key
         ), select_rec, json::array({"b", "d"}));
 
@@ -865,7 +865,7 @@ int main(int argc, char **argv, char **envp)
 
     test_cdt_success(fd, "select_apply: multiply values > 25 by 2", "values", as_op::type::t_cdt_modify,
         cdt::select_apply(
-            json::array({as_cdt::ctx_special::exp, expr_gt_25}),
+            json::array({as_cdt::ctx_type::exp, expr_gt_25}),
             apply_multiply_2
         ), select_rec);
 
@@ -884,7 +884,7 @@ int main(int argc, char **argv, char **envp)
 
     test_cdt_operation(fd, "select: on empty list", "empty", as_op::type::t_cdt_read,
         cdt::select(
-            json::array({as_cdt::ctx_special::exp, expr_always_true}),
+            json::array({as_cdt::ctx_type::exp, expr_always_true}),
             cdt::select_mode::tree
         ), select_rec, json::array());
 
@@ -896,7 +896,7 @@ int main(int argc, char **argv, char **envp)
 
     test_cdt_operation(fd, "select: all elements match", "all", as_op::type::t_cdt_read,
         cdt::select(
-            json::array({as_cdt::ctx_special::exp, expr_always_true}),
+            json::array({as_cdt::ctx_type::exp, expr_always_true}),
             cdt::select_mode::tree
         ), select_rec, json::array({1, 2, 3, 4, 5}));
 

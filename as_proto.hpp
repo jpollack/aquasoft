@@ -375,6 +375,7 @@ struct as_cdt
     // CDT context types for nested operations
     enum class ctx_type : int
     {
+	exp =		 0x04,  // AS_CDT_CTX_EXP - Expression-based context filter
 	list_index = 0x10,  // Navigate to list element by index
 	list_rank =  0x11,  // Navigate to list element by rank
 	list_value = 0x13,  // Navigate to list element by value
@@ -397,12 +398,6 @@ struct as_cdt
 	map_kv_ordered = 0xc0,
 	// Persist index flag
 	persist_index =  0x100,
-    };
-
-    // Special context types (beyond basic navigation)
-    enum class ctx_special : int
-    {
-	exp = 4  // AS_CDT_CTX_EXP - Expression-based context filter
     };
 
     // List ordering flags
