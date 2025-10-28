@@ -2258,6 +2258,148 @@ void test_expression_type_mismatches(int fd) {
         json::array({"hello"}),
         cdt::select_flag::no_fail
     );
+
+    // ========================================================================
+    // Additional Type Mismatch Tests - Comprehensive Type Pair Coverage
+    // ========================================================================
+
+    reset_test_record(fd, EXPR_COMPLEX_REC);
+    cout << "\n  Testing additional type pair mismatches..." << endl;
+
+    // Test 4: int vs list (with NO_FAIL)
+    select_test_data int_list_mix(EXPR_COMPLEX_REC, "int_list", json::array({10, json::array({1,2,3}), 20}));
+    setup_select_test(fd, int_list_mix);
+    test_select_operation(fd, "Type Mismatch: int > 15 with list elements (NO_FAIL)", int_list_mix,
+        expr_helpers::value_gt(15),
+        cdt::select_mode::tree,
+        json::array({20}),  // List element produces UNK, treated as false
+        cdt::select_flag::no_fail
+    );
+
+    // Test 5: int vs map (with NO_FAIL)
+    reset_test_record(fd, EXPR_COMPLEX_REC);
+    select_test_data int_map_mix(EXPR_COMPLEX_REC, "int_map", json::array({10, json::object({{"key", "val"}}), 20}));
+    setup_select_test(fd, int_map_mix);
+    test_select_operation(fd, "Type Mismatch: int < 15 with map elements (NO_FAIL)", int_map_mix,
+        expr_helpers::value_lt(15),
+        cdt::select_mode::tree,
+        json::array({10}),  // Map element produces UNK, treated as false
+        cdt::select_flag::no_fail
+    );
+
+    // Test 6: string vs list (with NO_FAIL)
+    reset_test_record(fd, EXPR_COMPLEX_REC);
+    select_test_data str_list_mix(EXPR_COMPLEX_REC, "str_list", json::array({"alpha", json::array({1,2}), "beta"}));
+    setup_select_test(fd, str_list_mix);
+    test_select_operation(fd, "Type Mismatch: string == \"beta\" with list elements (NO_FAIL)", str_list_mix,
+        expr::eq(expr::var_builtin_str(as_cdt::builtin_var::value), "beta"),
+        cdt::select_mode::tree,
+        json::array({"beta"}),
+        cdt::select_flag::no_fail
+    );
+
+    // Test 7: string vs map (with NO_FAIL)
+    reset_test_record(fd, EXPR_COMPLEX_REC);
+    select_test_data str_map_mix(EXPR_COMPLEX_REC, "str_map", json::array({"alpha", json::object({{"x", 1}}), "gamma"}));
+    setup_select_test(fd, str_map_mix);
+    test_select_operation(fd, "Type Mismatch: string < \"delta\" with map elements (NO_FAIL)", str_map_mix,
+        expr::lt(expr::var_builtin_str(as_cdt::builtin_var::value), "delta"),
+        cdt::select_mode::tree,
+        json::array({"alpha"}),  // "gamma" > "delta", map produces UNK
+        cdt::select_flag::no_fail
+    );
+
+    // Test 8: Mixed type with comparison that works on some types
+    reset_test_record(fd, EXPR_COMPLEX_REC);
+    select_test_data mixed_comp(EXPR_COMPLEX_REC, "mixed_comp",
+        json::array({10, "hello", 20, 30, "world"}));
+    setup_select_test(fd, mixed_comp);
+    // Integer comparison on mixed list - strings produce UNK, only ints match
+    test_select_operation(fd, "Type Mismatch: int >= 20 on int/string mix (NO_FAIL)", mixed_comp,
+        expr_helpers::value_ge(20),
+        cdt::select_mode::tree,
+        json::array({20, 30}),  // Only integers >= 20 match
+        cdt::select_flag::no_fail
+    );
+
+    // Test 9: Multiple numeric types (int vs float) - floats may not work with int comparisons
+    reset_test_record(fd, EXPR_COMPLEX_REC);
+    select_test_data num_types(EXPR_COMPLEX_REC, "num_types", json::array({10, 20.5, 30, 40.5, 50}));
+    setup_select_test(fd, num_types);
+    test_select_operation(fd, "Type Mismatch: int > 25 with float elements (NO_FAIL)", num_types,
+        expr_helpers::value_gt(25),
+        cdt::select_mode::tree,
+        json::array({30, 50}),  // Floats produce UNK in integer comparisons, only ints match
+        cdt::select_flag::no_fail
+    );
+
+    // Test 10: Empty string vs other strings
+    reset_test_record(fd, EXPR_COMPLEX_REC);
+    select_test_data empty_str(EXPR_COMPLEX_REC, "empty_str", json::array({"", "a", "", "b", ""}));
+    setup_select_test(fd, empty_str);
+    test_select_operation(fd, "Type Edge: Select empty strings", empty_str,
+        expr::eq(expr::var_builtin_str(as_cdt::builtin_var::value), ""),
+        cdt::select_mode::tree,
+        json::array({"", "", ""}),
+        cdt::select_flag::no_fail
+    );
+
+    // Test 11: Large vs small integers (overflow boundaries)
+    reset_test_record(fd, EXPR_COMPLEX_REC);
+    select_test_data large_ints(EXPR_COMPLEX_REC, "large_ints",
+        json::array({1, 2147483647, -2147483648, 0, 1000000}));  // INT_MAX, INT_MIN
+    setup_select_test(fd, large_ints);
+    test_select_operation(fd, "Type Edge: Large integers > 1000000", large_ints,
+        expr_helpers::value_gt(1000000),
+        cdt::select_mode::tree,
+        json::array({2147483647}),
+        cdt::select_flag::no_fail
+    );
+
+    // Test 12: Negative number handling
+    reset_test_record(fd, EXPR_COMPLEX_REC);
+    select_test_data negatives(EXPR_COMPLEX_REC, "negatives", json::array({-10, -5, 0, 5, 10}));
+    setup_select_test(fd, negatives);
+    test_select_operation(fd, "Type Edge: Negative numbers < 0", negatives,
+        expr_helpers::value_lt(0),
+        cdt::select_mode::tree,
+        json::array({-10, -5})
+    );
+
+    // Test 13: Zero vs non-zero
+    reset_test_record(fd, EXPR_COMPLEX_REC);
+    select_test_data zeros(EXPR_COMPLEX_REC, "zeros", json::array({0, 1, 0, 2, 0, 3}));
+    setup_select_test(fd, zeros);
+    test_select_operation(fd, "Type Edge: Select zero values", zeros,
+        expr_helpers::value_eq(0),
+        cdt::select_mode::tree,
+        json::array({0, 0, 0})
+    );
+
+    // Test 14: Very long strings
+    reset_test_record(fd, EXPR_COMPLEX_REC);
+    string long_str(1000, 'x');  // 1000-character string
+    select_test_data long_strings(EXPR_COMPLEX_REC, "long_strings",
+        json::array({"short", long_str, "medium_length", long_str}));
+    setup_select_test(fd, long_strings);
+    test_select_operation(fd, "Type Edge: Select very long strings (1000 chars)", long_strings,
+        expr::eq(expr::var_builtin_str(as_cdt::builtin_var::value), long_str),
+        cdt::select_mode::tree,
+        json::array({long_str, long_str})
+    );
+
+    // Test 15: Unicode strings (if supported)
+    reset_test_record(fd, EXPR_COMPLEX_REC);
+    select_test_data unicode(EXPR_COMPLEX_REC, "unicode",
+        json::array({"ascii", "日本語", "emoji🎉", "Ñoño"}));
+    setup_select_test(fd, unicode);
+    test_select_operation(fd, "Type Edge: Select unicode string", unicode,
+        expr::eq(expr::var_builtin_str(as_cdt::builtin_var::value), "日本語"),
+        cdt::select_mode::tree,
+        json::array({"日本語"})
+    );
+
+    cout << "\n  Type mismatch and edge case tests complete" << endl;
 }
 
 void test_expression_edge_cases(int fd) {
@@ -2507,6 +2649,407 @@ void test_deep_nesting(int fd) {
     cout << "  ========================================" << endl;
 
     // No actual tests run - this documents a fundamental server limitation
+}
+
+// ========================================================================
+// PART 6.5: PERSISTENT INDEX TESTS (Ordered Lists/Maps)
+// ========================================================================
+
+void test_persistent_indexes(int fd) {
+    cout << "\n--- PART 6.5: Persistent Index Tests (Ordered Collections) ---" << endl;
+    cout << "  Testing SELECT with ordered lists and maps that maintain sorted indexes" << endl;
+
+    reset_test_record(fd, EDGE_CASE_REC);
+
+    // ========================================================================
+    // Test 1: Ordered List - Basic SELECT
+    // ========================================================================
+    // Ordered lists maintain insertion order (not auto-sorted)
+    cout << "\n  Testing SELECT on ordered lists..." << endl;
+
+    select_test_data ordered_list_data(EDGE_CASE_REC, "ordered_nums", json::array({50, 10, 30, 20, 40}));
+    setup_select_test(fd, ordered_list_data);
+
+    // List maintains insertion order: [50, 10, 30, 20, 40]
+    // SELECT all elements > 25 should return [50, 30, 40] in original order
+    test_select_operation(fd, "Persistent Index: Ordered list SELECT > 25", ordered_list_data,
+        expr_helpers::value_gt(25),
+        cdt::select_mode::tree,
+        json::array({50, 30, 40})
+    );
+
+    // ========================================================================
+    // Test 2: Ordered List - Range Query
+    // ========================================================================
+    cout << "  Testing range queries on ordered lists..." << endl;
+
+    test_select_operation(fd, "Persistent Index: Ordered list range [20, 40]", ordered_list_data,
+        expr::and_(expr_helpers::value_ge(20), expr_helpers::value_le(40)),
+        cdt::select_mode::tree,
+        json::array({30, 20, 40})  // Original order: [50, 10, 30, 20, 40]
+    );
+
+    // ========================================================================
+    // Test 3: Ordered List - INDEX Variable with Ordering
+    // ========================================================================
+    cout << "  Testing INDEX variable with ordered lists..." << endl;
+
+    // In list [50, 10, 30, 20, 40], get elements at even indexes (0, 2, 4)
+    test_select_operation(fd, "Persistent Index: Even indexes in ordered list", ordered_list_data,
+        expr::eq(expr::mod(expr::var_builtin_int(as_cdt::builtin_var::index), 2), 0),
+        cdt::select_mode::tree,
+        json::array({50, 30, 40})  // Indexes 0, 2, 4
+    );
+
+    // ========================================================================
+    // Test 4: Ordered Map - Basic SELECT
+    // ========================================================================
+    reset_test_record(fd, EDGE_CASE_REC);
+    cout << "\n  Testing SELECT on ordered maps (sorted by key)..." << endl;
+
+    select_test_data ordered_map_data(EDGE_CASE_REC, "ordered_scores",
+        json::object({{"charlie", 78}, {"alice", 85}, {"diana", 95}, {"bob", 92}}));
+    setup_select_test(fd, ordered_map_data);
+
+    // Ordered map maintains sorted keys: alice < bob < charlie < diana
+    // SELECT values > 80 should preserve key order
+    test_select_operation(fd, "Persistent Index: Ordered map VALUE > 80", ordered_map_data,
+        expr_helpers::value_gt(80),
+        cdt::select_mode::tree,
+        json::object({{"alice", 85}, {"bob", 92}, {"diana", 95}})  // Sorted by key
+    );
+
+    // ========================================================================
+    // Test 5: Ordered Map - Key Range Query
+    // ========================================================================
+    cout << "  Testing key range queries on ordered maps..." << endl;
+
+    test_select_operation(fd, "Persistent Index: Ordered map KEY >= 'bob' AND KEY <= 'diana'", ordered_map_data,
+        expr::and_(expr_helpers::key_ge_str("bob"), expr_helpers::key_le_str("diana")),
+        cdt::select_mode::tree,
+        json::object({{"bob", 92}, {"charlie", 78}, {"diana", 95}})
+    );
+
+    // ========================================================================
+    // Test 6: Ordered Map - LEAF_MAP_KEY with Ordering
+    // ========================================================================
+    cout << "  Testing LEAF_MAP_KEY extraction from ordered map..." << endl;
+
+    test_select_operation(fd, "Persistent Index: Extract keys from ordered map", ordered_map_data,
+        expr_helpers::value_ge(85),
+        cdt::select_mode::leaf_map_key,
+        json::array({"alice", "bob", "diana"})  // Keys in sorted order
+    );
+
+    // ========================================================================
+    // Test 7: Large Ordered List - Stress Test
+    // ========================================================================
+    reset_test_record(fd, EDGE_CASE_REC);
+    cout << "\n  Testing large ordered list (500 elements)..." << endl;
+
+    json large_ordered = json::array({});
+    for (int i = 499; i >= 0; i--) {  // Insert in reverse order
+        large_ordered.push_back(i);
+    }
+    select_test_data large_ordered_data(EDGE_CASE_REC, "large_ordered", large_ordered);
+    setup_select_test(fd, large_ordered_data);
+
+    // List maintains insertion order: [499, 498, 497, ..., 2, 1, 0] (reverse)
+    // SELECT all elements in range [100, 110] should return in reverse order
+    json range_expected = json::array({});
+    for (int i = 110; i >= 100; i--) {  // Reverse order to match insertion
+        range_expected.push_back(i);
+    }
+
+    test_select_operation(fd, "Persistent Index: Large ordered list range query", large_ordered_data,
+        expr::and_(expr_helpers::value_ge(100), expr_helpers::value_le(110)),
+        cdt::select_mode::tree,
+        range_expected
+    );
+
+    // ========================================================================
+    // Test 8: Ordered List - APPLY with Index Preservation
+    // ========================================================================
+    reset_test_record(fd, EDGE_CASE_REC);
+    cout << "\n  Testing APPLY on ordered lists (index preservation)..." << endl;
+
+    select_test_data apply_ordered_data(EDGE_CASE_REC, "apply_ordered", json::array({5, 2, 4, 1, 3}));
+    setup_select_test(fd, apply_ordered_data);
+
+    // List maintains insertion order: [5, 2, 4, 1, 3]
+    // APPLY: multiply values > 2 by 10
+    // Result: [50, 2, 40, 1, 30] (original order preserved, matched elements transformed)
+    test_select_apply_operation(fd, "Persistent Index: APPLY on ordered list", apply_ordered_data,
+        expr_helpers::value_gt(2),
+        expr::mul(expr::var_builtin_int(as_cdt::builtin_var::value), 10),
+        json::array({50, 2, 40, 1, 30})
+    );
+
+    // ========================================================================
+    // Test 9: Ordered Map - APPLY with Key Ordering
+    // ========================================================================
+    reset_test_record(fd, EDGE_CASE_REC);
+    cout << "  Testing APPLY on ordered maps (key order preservation)..." << endl;
+
+    select_test_data apply_map_data(EDGE_CASE_REC, "apply_map",
+        json::object({{"z", 10}, {"a", 20}, {"m", 30}}));
+    setup_select_test(fd, apply_map_data);
+
+    // Ordered map: {a:20, m:30, z:10} after key sorting
+    // APPLY: multiply values < 25 by 2
+    // Result: {a:40, m:30, z:20}
+    test_select_apply_operation(fd, "Persistent Index: APPLY on ordered map", apply_map_data,
+        expr_helpers::value_lt(25),
+        expr::mul(expr::var_builtin_int(as_cdt::builtin_var::value), 2),
+        json::object({{"a", 40}, {"m", 30}, {"z", 20}})
+    );
+
+    // ========================================================================
+    // Test 10: Ordered Map - LEAF_MAP_KEY_VALUE with Ordering
+    // ========================================================================
+    cout << "  Testing LEAF_MAP_KEY_VALUE on ordered map..." << endl;
+
+    test_select_operation(fd, "Persistent Index: LEAF_MAP_KEY_VALUE from ordered map", apply_map_data,
+        expr_helpers::value_ge(20),
+        cdt::select_mode::leaf_map_key_value,
+        json::array({"a", 40, "m", 30, "z", 20})  // Flat list, key-sorted order
+    );
+
+    cout << "\n  All persistent index tests complete" << endl;
+}
+
+// ========================================================================
+// PART 6.6: QUICK-SELECT ALGORITHM TESTS (Performance & Adversarial Input)
+// ========================================================================
+
+void test_quick_select_algorithm(int fd) {
+    cout << "\n--- PART 6.6: Quick-Select Algorithm Tests (Performance & Edge Cases) ---" << endl;
+    cout << "  Testing SELECT performance with various input patterns" << endl;
+
+    reset_test_record(fd, EDGE_CASE_REC);
+
+    // ========================================================================
+    // Test 1: Pre-Sorted Input (Potential Worst Case)
+    // ========================================================================
+    cout << "\n  Testing with pre-sorted input..." << endl;
+
+    json sorted_input = json::array({});
+    for (int i = 0; i < 100; i++) {
+        sorted_input.push_back(i);
+    }
+    select_test_data sorted_data(EDGE_CASE_REC, "sorted", sorted_input);
+    setup_select_test(fd, sorted_data);
+
+    // SELECT middle range should work efficiently even with sorted input
+    json sorted_expected = json::array({});
+    for (int i = 40; i < 60; i++) {
+        sorted_expected.push_back(i);
+    }
+    test_select_operation(fd, "Quick-Select: Sorted input range [40-60)", sorted_data,
+        expr::and_(expr_helpers::value_ge(40), expr_helpers::value_lt(60)),
+        cdt::select_mode::tree,
+        sorted_expected
+    );
+
+    // ========================================================================
+    // Test 2: Reverse-Sorted Input
+    // ========================================================================
+    reset_test_record(fd, EDGE_CASE_REC);
+    cout << "  Testing with reverse-sorted input..." << endl;
+
+    json reverse_sorted = json::array({});
+    for (int i = 99; i >= 0; i--) {
+        reverse_sorted.push_back(i);
+    }
+    select_test_data reverse_data(EDGE_CASE_REC, "reverse", reverse_sorted);
+    setup_select_test(fd, reverse_data);
+
+    // SELECT should handle reverse-sorted efficiently
+    json reverse_expected = json::array({});
+    for (int i = 59; i >= 40; i--) {  // Reverse order to match insertion
+        reverse_expected.push_back(i);
+    }
+    test_select_operation(fd, "Quick-Select: Reverse-sorted range [40-60)", reverse_data,
+        expr::and_(expr_helpers::value_ge(40), expr_helpers::value_lt(60)),
+        cdt::select_mode::tree,
+        reverse_expected
+    );
+
+    // ========================================================================
+    // Test 3: All Duplicates (Degenerate Case)
+    // ========================================================================
+    reset_test_record(fd, EDGE_CASE_REC);
+    cout << "  Testing with all duplicate values..." << endl;
+
+    json all_duplicates = json::array({});
+    for (int i = 0; i < 100; i++) {
+        all_duplicates.push_back(42);  // All same value
+    }
+    select_test_data dup_data(EDGE_CASE_REC, "duplicates", all_duplicates);
+    setup_select_test(fd, dup_data);
+
+    // SELECT == 42 should return all 100 elements efficiently
+    test_select_operation(fd, "Quick-Select: All duplicates (100 elements)", dup_data,
+        expr_helpers::value_eq(42),
+        cdt::select_mode::tree,
+        all_duplicates
+    );
+
+    // ========================================================================
+    // Test 4: Alternating Pattern
+    // ========================================================================
+    reset_test_record(fd, EDGE_CASE_REC);
+    cout << "  Testing with alternating values..." << endl;
+
+    json alternating = json::array({});
+    for (int i = 0; i < 50; i++) {
+        alternating.push_back(0);
+        alternating.push_back(100);
+    }
+    select_test_data alt_data(EDGE_CASE_REC, "alternating", alternating);
+    setup_select_test(fd, alt_data);
+
+    // SELECT == 0 should return 50 elements
+    json zeros = json::array({});
+    for (int i = 0; i < 50; i++) {
+        zeros.push_back(0);
+    }
+    test_select_operation(fd, "Quick-Select: Alternating pattern (0s only)", alt_data,
+        expr_helpers::value_eq(0),
+        cdt::select_mode::tree,
+        zeros
+    );
+
+    // ========================================================================
+    // Test 5: Single Element Match in Large List
+    // ========================================================================
+    reset_test_record(fd, EDGE_CASE_REC);
+    cout << "  Testing single element selection from large list..." << endl;
+
+    json large_with_one = json::array({});
+    for (int i = 0; i < 1000; i++) {
+        if (i == 500) {
+            large_with_one.push_back(9999);  // Unique value at middle
+        } else {
+            large_with_one.push_back(i);
+        }
+    }
+    select_test_data single_match_data(EDGE_CASE_REC, "single_match", large_with_one);
+    setup_select_test(fd, single_match_data);
+
+    test_select_operation(fd, "Quick-Select: Single match in 1000 elements", single_match_data,
+        expr_helpers::value_eq(9999),
+        cdt::select_mode::tree,
+        json::array({9999})
+    );
+
+    // ========================================================================
+    // Test 6: No Matches (Empty Result)
+    // ========================================================================
+    cout << "  Testing no matches case..." << endl;
+
+    test_select_operation(fd, "Quick-Select: No matches in large list", single_match_data,
+        expr_helpers::value_gt(10000),
+        cdt::select_mode::tree,
+        json::array({})
+    );
+
+    // ========================================================================
+    // Test 7: SELECT All Elements (Performance Check)
+    // ========================================================================
+    reset_test_record(fd, EDGE_CASE_REC);
+    cout << "  Testing SELECT all elements from large list..." << endl;
+
+    json all_elements = json::array({});
+    for (int i = 0; i < 500; i++) {
+        all_elements.push_back(i);
+    }
+    select_test_data all_data(EDGE_CASE_REC, "all_elements", all_elements);
+    setup_select_test(fd, all_data);
+
+    test_select_operation(fd, "Quick-Select: Select all 500 elements", all_data,
+        expr_helpers::value_ge(0),
+        cdt::select_mode::tree,
+        all_elements
+    );
+
+    // ========================================================================
+    // Test 8: Many Small Ranges
+    // ========================================================================
+    reset_test_record(fd, EDGE_CASE_REC);
+    cout << "  Testing many small value ranges..." << endl;
+
+    json ranges = json::array({});
+    for (int i = 0; i < 100; i++) {
+        ranges.push_back(i % 10);  // Values 0-9 repeated
+    }
+    select_test_data ranges_data(EDGE_CASE_REC, "ranges", ranges);
+    setup_select_test(fd, ranges_data);
+
+    // SELECT == 5 should return 10 elements (5 appears 10 times)
+    json fives = json::array({});
+    for (int i = 0; i < 10; i++) {
+        fives.push_back(5);
+    }
+    test_select_operation(fd, "Quick-Select: Select repeated value (5)", ranges_data,
+        expr_helpers::value_eq(5),
+        cdt::select_mode::tree,
+        fives
+    );
+
+    // ========================================================================
+    // Test 9: Nearly All Match
+    // ========================================================================
+    reset_test_record(fd, EDGE_CASE_REC);
+    cout << "  Testing nearly all elements match..." << endl;
+
+    json nearly_all = json::array({});
+    for (int i = 0; i < 100; i++) {
+        nearly_all.push_back(i < 95 ? 50 : i);  // 95 elements = 50, 5 different
+    }
+    select_test_data nearly_data(EDGE_CASE_REC, "nearly_all", nearly_all);
+    setup_select_test(fd, nearly_data);
+
+    json expected_50s = json::array({});
+    for (int i = 0; i < 95; i++) {
+        expected_50s.push_back(50);
+    }
+    test_select_operation(fd, "Quick-Select: Nearly all match (95/100)", nearly_data,
+        expr_helpers::value_eq(50),
+        cdt::select_mode::tree,
+        expected_50s
+    );
+
+    // ========================================================================
+    // Test 10: Complex Expression with Large Dataset
+    // ========================================================================
+    reset_test_record(fd, EDGE_CASE_REC);
+    cout << "  Testing complex expression on large dataset..." << endl;
+
+    json complex_data = json::array({});
+    for (int i = 0; i < 500; i++) {
+        complex_data.push_back(i);
+    }
+    select_test_data complex_dataset(EDGE_CASE_REC, "complex", complex_data);
+    setup_select_test(fd, complex_dataset);
+
+    // SELECT (VALUE % 10 == 0 OR VALUE % 17 == 0) - multiples of 10 or 17
+    json complex_expected = json::array({});
+    for (int i = 0; i < 500; i++) {
+        if (i % 10 == 0 || i % 17 == 0) {
+            complex_expected.push_back(i);
+        }
+    }
+    test_select_operation(fd, "Quick-Select: Complex expression (mod 10 OR mod 17)", complex_dataset,
+        expr::or_(
+            expr::eq(expr::mod(expr::var_builtin_int(as_cdt::builtin_var::value), 10), 0),
+            expr::eq(expr::mod(expr::var_builtin_int(as_cdt::builtin_var::value), 17), 0)
+        ),
+        cdt::select_mode::tree,
+        complex_expected
+    );
+
+    cout << "\n  All quick-select algorithm tests complete" << endl;
 }
 
 // ========================================================================
@@ -2854,6 +3397,8 @@ int main(int argc, char **argv, char **envp)
     test_edge_multi_level_contexts(fd);
     test_edge_buffer_sizes(fd);
     test_deep_nesting(fd);
+    test_persistent_indexes(fd);
+    test_quick_select_algorithm(fd);
 
     // PART 7: Bug Trigger Tests
     cout << "\n" << string(120, '=') << endl;

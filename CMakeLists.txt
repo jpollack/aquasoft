@@ -89,3 +89,12 @@ target_link_libraries(test_nesting_depth nlohmann_json::nlohmann_json)
 
 add_executable(test_select_nested_simple test_select_nested_simple.cpp as_proto.cpp util.cpp ripemd160.cpp)
 target_link_libraries(test_select_nested_simple nlohmann_json::nlohmann_json)
+
+add_executable(test_select_context_approach test_select_context_approach.cpp as_proto.cpp util.cpp ripemd160.cpp)
+target_link_libraries(test_select_context_approach nlohmann_json::nlohmann_json)
+
+add_executable(test_select_depth test_select_depth.cpp as_proto.cpp util.cpp ripemd160.cpp)
+target_link_libraries(test_select_depth nlohmann_json::nlohmann_json)
+
+add_executable(test_select_map_depth test_select_map_depth.cpp as_proto.cpp util.cpp ripemd160.cpp)
+target_link_libraries(test_select_map_depth nlohmann_json::nlohmann_json)
