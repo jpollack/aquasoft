@@ -701,10 +701,11 @@ namespace cdt
     // Selection modes
     enum class select_mode : int
     {
-        tree =         0,    // SELECT_TREE - Return entire matching subtrees
-        leaf_list =    1,    // SELECT_LEAF_LIST - Extract values from leaf elements
-        leaf_map_key = 2,    // SELECT_LEAF_MAP_KEY - Extract keys from matching map entries
-        apply =        4     // SELECT_APPLY - Modify selected elements
+        tree =              0,    // SELECT_TREE - Return entire matching subtrees
+        leaf_list =         1,    // SELECT_LEAF_LIST - Extract values from leaf elements
+        leaf_map_key =      2,    // SELECT_LEAF_MAP_KEY - Extract keys from matching map entries
+        leaf_map_key_value = 3,    // SELECT_LEAF_MAP_KEY_VALUE - Extract [key, value] pairs from matching map entries
+        apply =             4     // SELECT_APPLY - Modify selected elements
     };
 
     // Selection flags
