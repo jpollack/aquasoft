@@ -358,6 +358,13 @@ struct as_cdt
 	get_by_value_rel_rank_range =	110
     };
 
+    // Special CDT operations (work on both lists and maps)
+    enum class special_op : int
+    {
+	select =	    254,  // 0xFE - CDT SELECT (expression-based filtering)
+	subcontext_eval =   255   // 0xFF - Subcontext evaluation (nested operations)
+    };
+
     enum class return_type : int
     {
 	none =		0,  // Don't return anything
@@ -677,7 +684,7 @@ namespace cdt
         const json& context_array,
         const json& operation
     ) {
-        return {255, context_array, operation};
+        return {as_cdt::special_op::subcontext_eval, context_array, operation};
     }
 
     // CDT SELECT operation - opcode 254 (0xFE)
@@ -705,7 +712,7 @@ namespace cdt
         select_flag flags = select_flag::none
     ) {
         int64_t combined_flags = static_cast<int64_t>(mode) | static_cast<int64_t>(flags);
-        return {254, context_array, combined_flags};
+        return {as_cdt::special_op::select, context_array, combined_flags};
     }
 
     // Build CDT select operation for apply mode with transformation expression
@@ -716,6 +723,6 @@ namespace cdt
         select_flag flags = select_flag::none
     ) {
         int64_t combined_flags = static_cast<int64_t>(select_mode::apply) | static_cast<int64_t>(flags);
-        return {254, context_array, combined_flags, apply_exp};
+        return {as_cdt::special_op::select, context_array, combined_flags, apply_exp};
     }
 }
