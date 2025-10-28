@@ -96,6 +96,9 @@ target_link_libraries(motivating_example_select_bug nlohmann_json::nlohmann_json
 add_executable(test_select_combined_context test_select_combined_context.cpp as_proto.cpp util.cpp ripemd160.cpp)
 target_link_libraries(test_select_combined_context nlohmann_json::nlohmann_json)
 
+add_executable(test_subcontext_limitations test_subcontext_limitations.cpp as_proto.cpp util.cpp ripemd160.cpp)
+target_link_libraries(test_subcontext_limitations nlohmann_json::nlohmann_json)
+
 add_executable(test_select_context_approach test_select_context_approach.cpp as_proto.cpp util.cpp ripemd160.cpp)
 target_link_libraries(test_select_context_approach nlohmann_json::nlohmann_json)
 
