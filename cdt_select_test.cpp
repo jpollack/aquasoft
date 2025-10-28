@@ -375,6 +375,18 @@ void test_select_operation(int fd, const char* name, const select_test_data& dat
     test_cdt_operation(fd, name, data.bin_name, as_op::type::t_cdt_read, op, data.record_id, expected);
 }
 
+// Test SELECT operation with multi-level context array
+// Allows testing complex contexts with multiple expression levels or mixed context types
+template<typename T>
+void test_select_operation_with_context(int fd, const char* name, const select_test_data& data,
+                                        const json& context_array,  // Full context, not just expression
+                                        cdt::select_mode mode, const T& expected,
+                                        cdt::select_flag flags = cdt::select_flag::none)
+{
+    auto op = cdt::select(context_array, mode, flags);
+    test_cdt_operation(fd, name, data.bin_name, as_op::type::t_cdt_read, op, data.record_id, expected);
+}
+
 // Test SELECT_APPLY operation with validation (two-step pattern)
 // Step 1: Execute SELECT_APPLY (success check only)
 // Step 2: Read bin back and validate transformation
@@ -428,6 +440,95 @@ void test_select_apply_operation(int fd, const char* name, const select_test_dat
     free(res);
 }
 
+// Test SELECT_APPLY operation with multi-level context array
+template<typename T>
+void test_select_apply_operation_with_context(int fd, const char* name, const select_test_data& data,
+                                              const json& context_array, const json& apply_expr,
+                                              const T& expected, cdt::select_flag flags = cdt::select_flag::none)
+{
+    auto apply_op = cdt::select_apply(context_array, apply_expr, flags);
+
+    test_cdt_success(fd, name, data.bin_name, as_op::type::t_cdt_modify,
+                     apply_op, data.record_id);
+
+    // Read back and validate
+    char buf[4096];
+    as_msg *req = (as_msg *)(buf + 2048);
+    as_msg *res = nullptr;
+
+    visit(req, data.record_id, AS_MSG_FLAG_READ);
+    dieunless(req->add(as_op::type::t_read, data.bin_name, 0));
+
+    uint32_t dur = 0;
+    call(fd, (void**)&res, req, &dur);
+
+    string verify_name = string(name) + " [verify]";
+    cout << left << setw(55) << verify_name << " | ";
+
+    if (!check_connection(res, verify_name.c_str())) {
+        cout << "SERVER CONNECTION LOST" << endl;
+        exit(2);
+    }
+
+    if (res->result_code == 0) {
+        auto op = res->ops_begin();
+        auto result = validate_result(op, expected);
+        cout << result.message;
+        if (result.passed) {
+            report_pass(verify_name.c_str());
+        } else {
+            report_fail(verify_name.c_str(), result.message);
+        }
+    } else {
+        cout << "ERROR: code " << (int)res->result_code;
+        report_fail(verify_name.c_str(), "read-back failed");
+    }
+
+    cout << " | " << dur << " us" << endl;
+    free(res);
+}
+
+// Context builder helpers for multi-level expressions
+namespace context_builder {
+    // Single expression context (same as default behavior)
+    inline json single_exp(const json& expr) {
+        return json::array({as_cdt::ctx_type::exp, expr});
+    }
+
+    // Two-level expression context
+    inline json two_level_exp(const json& expr1, const json& expr2) {
+        return json::array({
+            as_cdt::ctx_type::exp, expr1,
+            as_cdt::ctx_type::exp, expr2
+        });
+    }
+
+    // Three-level expression context
+    inline json three_level_exp(const json& expr1, const json& expr2, const json& expr3) {
+        return json::array({
+            as_cdt::ctx_type::exp, expr1,
+            as_cdt::ctx_type::exp, expr2,
+            as_cdt::ctx_type::exp, expr3
+        });
+    }
+
+    // Mixed context: map navigation + expression filter
+    inline json map_key_then_exp(const string& key, const json& expr) {
+        return json::array({
+            as_cdt::ctx_type::map_key, key,
+            as_cdt::ctx_type::exp, expr
+        });
+    }
+
+    // Mixed context: list index + expression filter
+    inline json list_index_then_exp(int index, const json& expr) {
+        return json::array({
+            as_cdt::ctx_type::list_index, index,
+            as_cdt::ctx_type::exp, expr
+        });
+    }
+}
+
 // Test SELECT operation expecting an error
 void test_select_expect_error(int fd, const char* name, const select_test_data& data,
                               const json& filter_expr, cdt::select_mode mode, uint8_t expected_error)
@@ -444,6 +545,40 @@ void test_select_expect_error(int fd, const char* name, const select_test_data& 
 
     visit(req, data.record_id, AS_MSG_FLAG_READ);
     dieunless(req->add(as_op::type::t_cdt_read, data.bin_name, op));
+
+    uint32_t dur = 0;
+    call(fd, (void**)&res, req, &dur);
+
+    cout << left << setw(55) << name << " | ";
+
+    if (!check_connection(res, name)) {
+        cout << "SERVER CONNECTION LOST" << endl;
+        exit(2);
+    }
+
+    if (res->result_code == expected_error) {
+        cout << "OK: error " << (int)expected_error;
+        report_pass(name);
+    } else {
+        cout << "expected error " << (int)expected_error << ", got " << (int)res->result_code;
+        report_fail(name, "wrong error code");
+    }
+
+    cout << " | " << dur << " us" << endl;
+    free(res);
+}
+
+// Test raw CDT operations without helper wrappers
+// Allows testing malformed operations for error paths
+void test_raw_cdt_operation(int fd, const char* name, const select_test_data& data,
+                           const json& raw_cdt_op, uint8_t expected_error)
+{
+    char buf[4096];
+    as_msg *req = (as_msg *)(buf + 2048);
+    as_msg *res = nullptr;
+
+    visit(req, data.record_id, AS_MSG_FLAG_READ);
+    dieunless(req->add(as_op::type::t_cdt_read, data.bin_name, raw_cdt_op));
 
     uint32_t dur = 0;
     call(fd, (void**)&res, req, &dur);
@@ -1962,7 +2097,7 @@ void test_expression_logical_operators(int fd) {
     test_select_operation(fd, "EXPR: XOR(VALUE < 30, VALUE > 50)", data,
         expr::exclusive(expr_helpers::value_lt(30), expr_helpers::value_gt(50)),
         cdt::select_mode::tree,
-        json::array({5, 15, 25, 65, 75, 85, 95})  // Excludes 55 (matches both)
+        json::array({5, 15, 25, 55, 65, 75, 85, 95})  // XOR: exactly one condition true
     );
 
     // Nested logical - 3 levels deep
@@ -2049,7 +2184,8 @@ void test_expression_arithmetic(int fd) {
 void test_expression_builtin_vars_advanced(int fd) {
     cout << "\n--- PART 5.3: Built-in Variables - Advanced Patterns ---" << endl;
 
-    select_test_data data(EXPR_COMPLEX_REC, "", json::array({}));
+    reset_test_record(fd, EXPR_COMPLEX_REC);
+    select_test_data data(EXPR_COMPLEX_REC, "indexed_vals", json::array({10, 20, 30, 40, 50, 60, 70, 80, 90, 100}));
     setup_select_test(fd, data);
 
     // INDEX % 2 == 0 (even indices)
@@ -2067,6 +2203,7 @@ void test_expression_builtin_vars_advanced(int fd) {
     );
 
     // VALUE * INDEX > 200 (combined)
+    // 50*4=200 (not>200), 60*5=300, 70*6=420, 80*7=560, 90*8=720, 100*9=900
     test_select_operation(fd, "EXPR: VALUE * INDEX > 200", data,
         expr::gt(
             expr::mul(
@@ -2076,7 +2213,7 @@ void test_expression_builtin_vars_advanced(int fd) {
             200
         ),
         cdt::select_mode::tree,
-        json::array({50, 60, 70, 80, 90, 100})
+        json::array({60, 70, 80, 90, 100})  // 50 excluded: 50*4=200 is not > 200
     );
 
     // INDEX >= 3 AND VALUE < 70 (combined filter)
@@ -2124,6 +2261,7 @@ void test_expression_type_mismatches(int fd) {
 void test_expression_edge_cases(int fd) {
     cout << "\n--- PART 5.5: Expression Edge Cases ---" << endl;
 
+    reset_test_record(fd, EXPR_COMPLEX_REC);
     select_test_data data(EXPR_COMPLEX_REC, "nums", json::array({10, 20, 30, 40, 50}));
     setup_select_test(fd, data);
 
@@ -2250,15 +2388,16 @@ void test_bug_triggers(int fd) {
 
     cout << "  BUG #1 trigger tests (TODO: requires raw operation helper)" << endl;
 
-    // BUG #2 Trigger: APPLY with particle creation
+    // BUG #2 Trigger: APPLY with particle creation (integer particles)
     cout << "  Testing BUG #2 triggers (APPLY particle memory leaks)..." << endl;
 
-    // APPLY that creates new list particles
-    // Note: This test replaces matching values with [VALUE, 999]
-    test_select_apply_operation(fd, "BUG #2: APPLY creating list particles", data,
+    // APPLY that creates new integer particles (scalar transformation)
+    // Note: Array/object replacement is NOT supported by server (documented limitation)
+    // This tests integer particle creation which can trigger memory leaks if not freed properly
+    test_select_apply_operation(fd, "BUG #2: APPLY creating integer particles", data,
         expr_helpers::value_gt(15),
-        json::array({expr::var_builtin_int(as_cdt::builtin_var::value), 999}),
-        json::array({10, json::array({20, 999}), json::array({30, 999})})
+        expr::mul(expr::var_builtin_int(as_cdt::builtin_var::value), 10),  // Transform: VALUE * 10
+        json::array({10, 200, 300})  // 20*10=200, 30*10=300
     );
 
     cout << "  BUG #2 trigger tested (run with valgrind to detect leaks)" << endl;
@@ -2275,33 +2414,32 @@ void test_leaf_map_key_value_mode(int fd) {
 						  json::object({{"alice", 85}, {"bob", 92}, {"charlie", 78}, {"diana", 95}}));
     setup_select_test(fd, data);
 
-    // Extract [key, value] pairs where value > 80
+    // Extract [key, value] pairs where value > 80 (returned as flat list: key1, val1, key2, val2, ...)
     test_select_operation(fd, "LEAF_MAP_KEY_VALUE: VALUE > 80", data,
         expr_helpers::value_gt(80),
         cdt::select_mode::leaf_map_key_value,
-        json::array({json::array({"alice", 85}), json::array({"bob", 92}), json::array({"diana", 95})})
+        json::array({"alice", 85, "bob", 92, "diana", 95})
     );
 
     // Extract [key, value] pairs where key > "bob"
     test_select_operation(fd, "LEAF_MAP_KEY_VALUE: KEY > 'bob'", data,
         expr_helpers::key_gt_str("bob"),
         cdt::select_mode::leaf_map_key_value,
-        json::array({json::array({"charlie", 78}), json::array({"diana", 95})})
+        json::array({"charlie", 78, "diana", 95})
     );
 
-    // Combined: KEY >= "bob" AND VALUE < 90
+    // Combined: KEY >= "bob" AND VALUE < 90 (only charlie matches)
     test_select_operation(fd, "LEAF_MAP_KEY_VALUE: KEY >= 'bob' AND VALUE < 90", data,
         expr::and_(expr_helpers::key_ge_str("bob"), expr_helpers::value_lt(90)),
         cdt::select_mode::leaf_map_key_value,
-        json::array({json::array({"bob", 92}), json::array({"charlie", 78})})
+        json::array({"charlie", 78})  // bob:92 doesn't match VALUE < 90
     );
 
     // All match
     test_select_operation(fd, "LEAF_MAP_KEY_VALUE: All match", data,
         expr_helpers::value_gt(0),
         cdt::select_mode::leaf_map_key_value,
-        json::array({json::array({"alice", 85}), json::array({"bob", 92}),
-                     json::array({"charlie", 78}), json::array({"diana", 95})})
+        json::array({"alice", 85, "bob", 92, "charlie", 78, "diana", 95})
     );
 
     // No match
