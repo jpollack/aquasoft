@@ -450,7 +450,7 @@ struct as_cdt
     {
 	key = 0,    // AS_EXP_BUILTIN_KEY - Map key (available in map contexts only)
 	value = 1,  // AS_EXP_BUILTIN_VALUE - Element value (lists) or entry value (maps)
-	index = 2   // AS_EXP_BUILTIN_INDEX - Element index (0-based position)
+	index = 2   // AS_EXP_BUILTIN_INDEX - Element index (0-based position, LIST ONLY - not supported on maps)
     };
 };
 
@@ -484,7 +484,19 @@ namespace expr
     inline json ge  (json a, json b) { return {as_exp::op::cmp_ge, a, b}; }
     inline json lt  (json a, json b) { return {as_exp::op::cmp_lt, a, b}; }
     inline json le  (json a, json b) { return {as_exp::op::cmp_le, a, b}; }
-    inline json regex(json a, json b) { return {as_exp::op::cmp_regex, a, b}; }
+
+    // Regex: regex(options, pattern, value_expression)
+    // options: 0=basic, 1=extended (REG_EXTENDED), 2=case-insensitive (REG_ICASE), etc.
+    // pattern: regex pattern string (e.g., "^test.*")
+    // value_expression: the expression that returns a string to match against
+    inline json regex(int64_t options, const std::string& pattern, json value_expr) {
+        return {as_exp::op::cmp_regex, options, pattern, value_expr};
+    }
+    // Convenience: regex with default options (extended regex)
+    inline json regex(const std::string& pattern, json value_expr) {
+        return regex(1, pattern, value_expr);  // REG_EXTENDED = 1
+    }
+
     inline json geo (json a, json b) { return {as_exp::op::cmp_geo, a, b}; }
 
     // Logical operations
@@ -547,6 +559,7 @@ namespace expr
 
     // Built-in variables for CDT SELECT operations
     // Variable IDs: AS_EXP_BUILTIN_KEY=0, AS_EXP_BUILTIN_VALUE=1, AS_EXP_BUILTIN_INDEX=2
+    // NOTE: INDEX builtin only works with lists, not maps (server returns error code 4 on maps)
     inline json var_builtin_map(as_cdt::builtin_var var) {
         return {as_exp::op::var_builtin, as_exp::result_type::t_map, static_cast<int>(var)};
     }
