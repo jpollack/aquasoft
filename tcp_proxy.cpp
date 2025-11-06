@@ -30,7 +30,9 @@ void hex_dump(const string& label, const uint8_t* data, size_t len) {
     }
     if (len % 16 != 0) cout << "\n";
     cout << dec;
+	cout << to_json((as_msg*)(data + 8)).dump() << "\n";
     cout.flush();
+
 }
 
 void proxy_connection(int client_fd, const string& target) {

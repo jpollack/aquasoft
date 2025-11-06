@@ -35,14 +35,14 @@ int main (int argc, char **argv, char **envp)
 {
   string hline;
   while (getline (cin, hline) && !hline.empty ()) {
-      if (hline.size() % 2) {
-	fprintf (stderr, "Invalid length: %d\n", hline.size());
-	continue;
-      }
-      auto sz = hline.size() / 2;
-      vector<uint8_t> buf(sz, 0);
-      from_hex(buf.data(), hline.c_str(), sz);
-      printf ("%s\n", to_json((as_msg*)(buf.data() + 8)).dump().c_str());
+	if (hline.size() % 2) {
+	  fprintf (stderr, "Invalid length: %d\n", hline.size());
+	  continue;
+	}
+	auto sz = hline.size() / 2;
+	vector<uint8_t> buf(sz, 0);
+	from_hex(buf.data(), hline.c_str(), sz);
+	printf ("%s\n", to_json((as_msg*)(buf.data() + 8)).dump().c_str());
   }
 
   return 0;
